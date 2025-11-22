@@ -1,0 +1,12 @@
+Django
+djangorestframework
+psycopg2-binary
+pgvector
+django-cors-headers
+torch
+transformers
+Pillow
+sentence-transformers
+requests
+python-dotenv
+ultralytics>=8.0.0
