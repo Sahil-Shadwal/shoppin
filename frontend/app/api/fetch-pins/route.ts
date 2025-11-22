@@ -18,11 +18,31 @@ export async function GET(request: NextRequest) {
   const shuffle = searchParams.get('shuffle') === 'true';
 
   try {
-    // 🚀 OPTIMIZATION: First, try to fetch from Django database
-    const dbPins = await fetchFromDatabase(query, shuffle);
+    // 🔄 If shuffle/More Ideas: ALWAYS scrape fresh content
+    if (shuffle) {
+      console.log(`🔄 More Ideas clicked - scraping FRESH content for "${query}"`);
+      const scrapedPins = await scrapePinterest(query, true);
+      
+      // Store scraped images in background (don't wait)
+      storeInDatabase(scrapedPins, query).catch(err => 
+        console.error('Background storage error:', err)
+      );
+
+      return NextResponse.json({
+        success: true,
+        pins: scrapedPins,
+        total: scrapedPins.length,
+        query: query,
+        shuffled: true,
+        cached: false
+      });
+    }
+
+    // ⚡ First load: Check DB first for instant load
+    const dbPins = await fetchFromDatabase(query, false);
     
-    // If we have enough cached images (at least 30), return them immediately
-    if (dbPins.length >= 30 && !shuffle) {
+    // If we have enough cached images, return them immediately
+    if (dbPins.length >= 30) {
       console.log(`✅ Returning ${dbPins.length} cached images for "${query}"`);
       return NextResponse.json({
         success: true,
@@ -34,9 +54,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // If shuffling or not enough cached images, scrape fresh content
-    console.log(`🔄 ${shuffle ? 'Shuffling - scraping fresh content' : 'Not enough cached images - scraping'} for "${query}"`);
-    const scrapedPins = await scrapePinterest(query, shuffle);
+    // Not enough cached images, scrape fresh content
+    console.log(`🔍 Not enough cached images - scraping for "${query}"`);
+    const scrapedPins = await scrapePinterest(query, false);
     
     // Store scraped images in background (don't wait)
     storeInDatabase(scrapedPins, query).catch(err => 
@@ -84,7 +104,7 @@ async function fetchFromDatabase(query: string, shuffle: boolean): Promise<Pin[]
     }
 
     // Convert Django format to frontend Pin format
-    let pins: Pin[] = data.images.map((img: any, index: number) => ({
+    const pins: Pin[] = data.images.map((img: any, index: number) => ({
       id: `db-${img.id}`,
       imageUrl: img.image_url,
       thumbnailUrl: img.thumbnail_url || img.image_url,
@@ -92,11 +112,6 @@ async function fetchFromDatabase(query: string, shuffle: boolean): Promise<Pin[]
       sourceUrl: `https://in.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
       query: query
     }));
-
-    // If shuffling, randomize the cached results
-    if (shuffle && pins.length > 0) {
-      pins = pins.sort(() => Math.random() - 0.5);
-    }
 
     return pins;
   } catch (error) {
@@ -131,7 +146,20 @@ async function scrapePinterest(query: string, shuffle: boolean): Promise<Pin[]> 
   scrapingBeeUrl.searchParams.append('url', pinterestUrl);
   scrapingBeeUrl.searchParams.append('extract_rules', JSON.stringify(extractRules));
   scrapingBeeUrl.searchParams.append('render_js', 'true');
-  scrapingBeeUrl.searchParams.append('wait', '2000');
+
+  if (shuffle) {
+    // Scroll down to get fresh pins (next page)
+    const jsScenario = {
+      instructions: [
+        { wait: 1000 },
+        { scroll_y: 2500 }, // Scroll down significantly to get past initial results
+        { wait: 2000 }
+      ]
+    };
+    scrapingBeeUrl.searchParams.append('js_scenario', JSON.stringify(jsScenario));
+  } else {
+    scrapingBeeUrl.searchParams.append('wait', '2000');
+  }
 
   const response = await fetch(scrapingBeeUrl.toString());
   
