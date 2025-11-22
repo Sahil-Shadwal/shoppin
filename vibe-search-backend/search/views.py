@@ -164,22 +164,75 @@ def shop_the_look(request):
         
         # 3️⃣ Generate query embedding
         query_embedding = None
+        detected_box = None  # To store normalized coordinates [x1, y1, x2, y2]
+        
+        # Extract category EARLY to use for cropping
+        requested_category = request.data.get('category')
+        print(f"Requested category for cropping: {requested_category}") # DEBUG
+
         if person_box is not None:
             # Crop person region and use it as query
             print(f"Found person with confidence {max_conf:.2f}, cropping region")
             x1, y1, x2, y2 = map(int, person_box.xyxy[0].tolist())
             img = Image.open(local_path)
+            img_width, img_height = img.size
             
-            # Add some padding (10%) to capture full outfit
+            # --- Heuristic Cropping Logic ---
+            p_width = x2 - x1
+            p_height = y2 - y1
+            
+            crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
+            
+            if requested_category == 'tops':
+                # Top 60% of person
+                crop_y2 = y1 + int(p_height * 0.6)
+                print("Applied 'tops' crop (Top 60%)")
+            elif requested_category == 'bottoms':
+                # Bottom 50% of person
+                crop_y1 = y1 + int(p_height * 0.5)
+                print("Applied 'bottoms' crop (Bottom 50%)")
+            elif requested_category == 'footwear':
+                # Bottom 20% of person
+                crop_y1 = y1 + int(p_height * 0.8)
+                print("Applied 'footwear' crop (Bottom 20%)")
+            elif requested_category == 'outerwear':
+                # Top 70% of person
+                crop_y2 = y1 + int(p_height * 0.7)
+                print("Applied 'outerwear' crop (Top 70%)")
+            
+            # Ensure coordinates are within image bounds and valid
+            crop_x1 = max(0, int(crop_x1))
+            crop_y1 = max(0, int(crop_y1))
+            crop_x2 = min(img_width, int(crop_x2))
+            crop_y2 = min(img_height, int(crop_y2))
+            
+            # Safety check: if crop is too small or invalid, revert to full person
+            if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
+                print("Warning: Invalid crop dimensions, reverting to full person")
+                crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
+
+            # Calculate normalized coordinates for frontend using the SPECIFIC CROP
+            detected_box = [
+                crop_x1 / img_width,
+                crop_y1 / img_height,
+                crop_x2 / img_width,
+                crop_y2 / img_height
+            ]
+            
+            # Add some padding (10%) to capture context (optional, maybe less for specific items)
+            # For specific items, we might want less padding to be precise
+            padding_scale = 0.05 if requested_category else 0.1
+            
             width, height = img.size
-            padding_x = int((x2 - x1) * 0.1)
-            padding_y = int((y2 - y1) * 0.1)
-            x1 = max(0, x1 - padding_x)
-            y1 = max(0, y1 - padding_y)
-            x2 = min(width, x2 + padding_x)
-            y2 = min(height, y2 + padding_y)
+            padding_x = int((crop_x2 - crop_x1) * padding_scale)
+            padding_y = int((crop_y2 - crop_y1) * padding_scale)
             
-            person_region = img.crop((x1, y1, x2, y2))
+            final_x1 = max(0, crop_x1 - padding_x)
+            final_y1 = max(0, crop_y1 - padding_y)
+            final_x2 = min(width, crop_x2 + padding_x)
+            final_y2 = min(height, crop_y2 + padding_y)
+            
+            person_region = img.crop((final_x1, final_y1, final_x2, final_y2))
             
             # Save cropped region
             fd, region_path = tempfile.mkstemp(suffix='.jpg')
@@ -207,12 +260,17 @@ def shop_the_look(request):
             return Response({'error': 'Failed to generate embedding'}, status=status.HTTP_400_BAD_REQUEST)
         
         # 4️⃣ Search across all categories
-        categories = ['tops', 'bottoms', 'footwear', 'outerwear', 'accessories']
+        if requested_category:
+            categories = [requested_category]
+        else:
+            categories = ['tops', 'bottoms', 'footwear', 'outerwear', 'accessories']
+            
         results = {}
         
-        print("Scanning categories...")
+        print(f"Scanning categories: {categories}") # DEBUG
         for category in categories:
             queryset = Product.objects.filter(category__icontains=category)
+            print(f"Category {category}: Found {queryset.count()} products in DB") # DEBUG
             
             if not queryset.exists():
                 print(f"No products found for category: {category}")
@@ -250,9 +308,15 @@ def shop_the_look(request):
                         "brand": product.brand_name
                     })
                 results[category] = cat_results
+            else:
+                print(f"No matches found for {category} after vector search") # DEBUG
         
         print(f"Shop the Look completed. Categories found: {list(results.keys())}")
-        return Response({"success": True, "results": results})
+        return Response({
+            "success": True, 
+            "results": results,
+            "detected_box": detected_box
+        })
     except Exception as e:
         print(f"CRITICAL ERROR in shop_the_look: {str(e)}")
         import traceback

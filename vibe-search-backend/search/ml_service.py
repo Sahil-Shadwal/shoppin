@@ -24,11 +24,15 @@ class MLService:
         self.text_model = SentenceTransformer('all-MiniLM-L6-v2', device=self.device)
         print("Models loaded successfully.")
 
-    def generate_image_embedding(self, image_url):
+    def generate_image_embedding(self, image_source):
         try:
-            response = requests.get(image_url, stream=True)
-            response.raise_for_status()
-            image = Image.open(response.raw)
+            if image_source.startswith('http://') or image_source.startswith('https://'):
+                response = requests.get(image_source, stream=True)
+                response.raise_for_status()
+                image = Image.open(response.raw)
+            else:
+                # Assume local file path
+                image = Image.open(image_source)
             
             inputs = self.clip_processor(images=image, return_tensors="pt").to(self.device)
             with torch.no_grad():

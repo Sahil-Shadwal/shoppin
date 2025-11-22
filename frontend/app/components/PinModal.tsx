@@ -33,6 +33,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [groupedResults, setGroupedResults] = useState<Record<string, Product[]>>({});
+  const [detectedBox, setDetectedBox] = useState<number[] | null>(null);
 
   const handleSearchSimilar = useCallback(async (category: string | null = null) => {
     if (!pin) return; // Guard clause
@@ -42,12 +43,11 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
     setSelectedCategory(category);
     setSimilarProducts([]);
     setGroupedResults({});
+    setDetectedBox(null);
     
     try {
-      // If category is selected, use specific search. If null, use "Shop the Look"
-      const endpoint = category 
-        ? 'http://127.0.0.1:8000/api/search/image/' 
-        : 'http://127.0.0.1:8000/api/search/shop-the-look/';
+      // Always use "Shop the Look" endpoint to get detection boxes
+      const endpoint = 'http://127.0.0.1:8000/api/search/shop-the-look/';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -68,10 +68,12 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
       }
       
       const data = await response.json();
+      console.log("API Response:", data); // DEBUG LOG
       
       if (category) {
-        if (data.matches) {
-          setSimilarProducts(data.matches);
+        // When filtering by category, results are still keyed by category
+        if (data.results && data.results[category]) {
+          setSimilarProducts(data.results[category]);
         }
       } else {
         if (data.results) {
@@ -79,7 +81,15 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
         }
       }
 
+      if (data.detected_box) {
+        console.log("Setting detected box:", data.detected_box); // DEBUG LOG
+        setDetectedBox(data.detected_box);
+      } else {
+          console.log("No detected box in response"); // DEBUG LOG
+      }
+
     } catch (error) {
+      console.error("Search error:", error); // DEBUG LOG
       // Silently catch all errors - no console logs, no alerts
       // Just fail gracefully
     } finally {
@@ -92,6 +102,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
     if (pin) {
       setSimilarProducts([]);
       setGroupedResults({});
+      setDetectedBox(null);
       setHasSearched(false);
       setSelectedCategory(null);
       setLoading(false);
@@ -150,11 +161,28 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           {/* Image section */}
           <div className="md:w-1/2 bg-gray-50 flex items-center justify-center p-8 overflow-y-auto">
-            <img
-              src={pin.imageUrl.replace('474x', '736x')}
-              alt={pin.title}
-              className="max-w-full h-auto object-contain rounded-xl"
-            />
+            <div className="relative inline-block">
+              <img
+                src={pin.imageUrl.replace('474x', '736x')}
+                alt={pin.title}
+                className="max-w-full h-auto object-contain rounded-xl"
+              />
+              {detectedBox && (
+                <div
+                  className="absolute border-2 border-white shadow-[0_0_10px_rgba(0,0,0,0.5)] rounded-lg pointer-events-none transition-all duration-500 ease-out"
+                  style={{
+                    left: `${detectedBox[0] * 100}%`,
+                    top: `${detectedBox[1] * 100}%`,
+                    width: `${(detectedBox[2] - detectedBox[0]) * 100}%`,
+                    height: `${(detectedBox[3] - detectedBox[1]) * 100}%`,
+                  }}
+                >
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-1 rounded-full whitespace-nowrap">
+                    Detected Outfit
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Details & Search section */}
