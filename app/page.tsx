@@ -116,8 +116,8 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-gray-200 mt-16 py-8">
         <div className="max-w-[2000px] mx-auto px-4 text-center text-gray-600">
-          <p>Pinterest Clone - Built with Next.js & ScrapingBee</p>
-          <p className="text-sm mt-2">For educational purposes only</p>
+          <p>Shoppin - Built with Next.js & Django </p>
+          <p className="text-sm mt-2">For onboarding purpose only!</p>
         </div>
       </footer>
     </div>

@@ -78,6 +78,38 @@ export async function GET(request: NextRequest) {
       filteredImages = filteredImages.sort(() => Math.random() - 0.5);
     }
 
+    // Send to Django backend for persistent storage
+    // Use 127.0.0.1 to avoid IPv6 issues with Node.js fetch
+    const DJANGO_BACKEND_URL = process.env.DJANGO_BACKEND_URL || 'http://127.0.0.1:8000';
+    
+    try {
+      const imagesToStore = filteredImages.map(img => ({
+        image_url: img.imageUrl,
+        thumbnail_url: img.thumbnailUrl,
+        source: 'pinterest',
+        caption: img.title,
+        query: query,
+        hashtags: [],
+      }));
+
+      const storageResponse = await fetch(`${DJANGO_BACKEND_URL}/api/scraped-images/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ images: imagesToStore }),
+      });
+
+      if (storageResponse.ok) {
+        const storageData = await storageResponse.json();
+        console.log(`Stored ${storageData.created_count} images in Django backend`);
+      }
+    } catch (storageError) {
+      console.error('Failed to store in Django backend:', storageError);
+      // Continue even if storage fails - return images to frontend
+    }
+
+
     return NextResponse.json({
       success: true,
       pins: filteredImages,

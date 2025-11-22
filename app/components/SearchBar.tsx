@@ -23,10 +23,10 @@ export default function SearchBar({ onSearch, isLoading }: SearchBarProps) {
     'fashion model',
     'street style',
     'outfit ideas',
-    'home decor',
-    'recipes',
-    'art',
-    'architecture'
+    'celebrity style',
+    'runway looks',
+    'wardrobe essentials',
+    'minimalist fashion'
   ];
 
   return (
