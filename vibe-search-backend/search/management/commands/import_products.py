@@ -92,6 +92,7 @@ class Command(BaseCommand):
                         category=mapped_category,
                         image_url=image_url,
                         price=price,
+                        pdp_url=row.get('pdp_url', ''),  # Add product page URL
                         colors=row.get('colorways', '').split(',') if row.get('colorways') else [],
                         visual_embedding=visual_embedding,
                         text_embedding=text_embedding

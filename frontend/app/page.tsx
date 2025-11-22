@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import MasonryGallery from './components/MasonryGallery';
 import SearchBar from './components/SearchBar';
 import PinModal from './components/PinModal';
@@ -20,17 +20,41 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [currentQuery, setCurrentQuery] = useState('fashion');
+  
+  // Client-side cache for instant category switching
+  const pinsCache = useRef<Record<string, Pin[]>>({});
 
   const fetchPins = async (query: string, shuffle: boolean = false) => {
+    // Check client-side cache first (unless shuffling)
+    if (!shuffle && pinsCache.current[query]) {
+      console.log('⚡ Loaded from CLIENT CACHE - instant!');
+      setPins(pinsCache.current[query]);
+      setCurrentQuery(query);
+      return;
+    }
+    
     setLoading(true);
     try {
       const shuffleParam = shuffle ? '&shuffle=true' : '';
-      const response = await fetch(`/api/scrape?query=${encodeURIComponent(query)}${shuffleParam}`);
+      // Use optimized route that checks DB first
+      const response = await fetch(`/api/fetch-pins?query=${encodeURIComponent(query)}${shuffleParam}`);
       const data = await response.json();
       
       if (data.success) {
         setPins(data.pins);
         setCurrentQuery(query);
+        
+        // Store in client-side cache for instant re-access
+        if (!shuffle) {
+          pinsCache.current[query] = data.pins;
+        }
+        
+        // Log if we're using cached data
+        if (data.cached) {
+          console.log('✅ Loaded from DB cache');
+        } else {
+          console.log('🔄 Scraped fresh content');
+        }
       } else {
         console.error('Failed to fetch pins:', data.error);
         alert('Failed to load pins. Please try again.');
@@ -75,7 +99,21 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[2000px] mx-auto px-4 py-8">
+      <main className="max-w-[2000px] mx-auto px-4 py-8 relative">
+        {/* Blur overlay during loading - FIXED to viewport */}
+        {loading && pins.length > 0 && (
+          <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              {/* Classic circular spinner */}
+              <div className="relative w-16 h-16">
+                <div className="absolute inset-0 border-4 border-gray-200 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-red-600 rounded-full border-t-transparent animate-spin"></div>
+              </div>
+              <p className="text-gray-700 font-medium">Loading fresh pins...</p>
+            </div>
+          </div>
+        )}
+        
         {loading && pins.length === 0 ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-red-600 mb-4"></div>

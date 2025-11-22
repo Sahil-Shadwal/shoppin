@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, ShoppingBag } from 'lucide-react';
 
 interface Pin {
@@ -19,6 +19,7 @@ interface Product {
   price: number;
   brand: string;
   visual_score: number;
+  pdp_url?: string;  // Add product page URL
 }
 
 interface PinModalProps {
@@ -33,9 +34,9 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [groupedResults, setGroupedResults] = useState<Record<string, Product[]>>({});
 
-  if (!pin) return null;
-
-  const handleSearchSimilar = async (category: string | null = null) => {
+  const handleSearchSimilar = useCallback(async (category: string | null = null) => {
+    if (!pin) return; // Guard clause
+    
     setLoading(true);
     setHasSearched(true);
     setSelectedCategory(category);
@@ -61,20 +62,65 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
         }),
       });
       
+      if (!response.ok) {
+        // Silently fail - don't show errors to user
+        return;
+      }
+      
       const data = await response.json();
       
       if (category) {
-        if (data.matches) setSimilarProducts(data.matches);
+        if (data.matches) {
+          setSimilarProducts(data.matches);
+        }
       } else {
-        if (data.results) setGroupedResults(data.results);
+        if (data.results) {
+          setGroupedResults(data.results);
+        }
       }
 
     } catch (error) {
-      console.error('Error searching similar products:', error);
+      // Silently catch all errors - no console logs, no alerts
+      // Just fail gracefully
     } finally {
       setLoading(false);
     }
-  };
+  }, [pin]);
+
+  // Clear previous results when pin changes
+  useEffect(() => {
+    if (pin) {
+      setSimilarProducts([]);
+      setGroupedResults({});
+      setHasSearched(false);
+      setSelectedCategory(null);
+      setLoading(false);
+    }
+  }, [pin?.id]);
+
+  // Auto-analyze outfit when pin opens - DISABLED due to image URL access issues
+  // Uncomment this if your image URLs are publicly accessible
+  /*
+  useEffect(() => {
+    if (pin) {
+      // Clear previous results
+      setSimilarProducts([]);
+      setGroupedResults({});
+      setHasSearched(false);
+      setSelectedCategory(null);
+      
+      // Automatically start analyzing with a small delay to ensure component is ready
+      const timer = setTimeout(() => {
+        handleSearchSimilar(null);
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [pin?.id, handleSearchSimilar]);
+  */
+
+  // Early return AFTER all hooks
+  if (!pin) return null;
 
   const categories = [
     { id: 'tops', label: 'Tops' },
@@ -113,15 +159,15 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
 
           {/* Details & Search section */}
           <div className="md:w-1/2 p-8 overflow-y-auto bg-white">
-            <div className="mb-8">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+            {/* <div className="mb-8"> */}
+              {/* <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">
                 Inspiration
               </h3>
               <p className="text-xl font-medium leading-relaxed mb-4">
                 {pin.title}
-              </p>
+              </p> */}
               
-              <div className="flex gap-3">
+              {/* <div className="flex gap-3">
                 <button className="flex-1 bg-red-600 text-white py-3 rounded-full font-semibold hover:bg-red-700 transition-colors">
                   Save Pin
                 </button>
@@ -133,8 +179,8 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
                 >
                   Visit Source
                 </a>
-              </div>
-            </div>
+              </div> */}
+            {/* </div> */}
 
             <div className="border-t border-gray-100 pt-8">
               <div className="flex items-center justify-between mb-4">
@@ -229,7 +275,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
 }
 
 function ProductCard({ product }: { product: Product }) {
-  return (
+  const CardContent = () => (
     <div className="group cursor-pointer">
       <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-100 mb-2">
         <img 
@@ -246,4 +292,20 @@ function ProductCard({ product }: { product: Product }) {
       <p className="font-semibold mt-1">${product.price}</p>
     </div>
   );
+
+  // If product has URL, make it a link, otherwise just render the card
+  if (product.pdp_url) {
+    return (
+      <a 
+        href={product.pdp_url} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="block hover:opacity-90 transition-opacity"
+      >
+        <CardContent />
+      </a>
+    );
+  }
+
+  return <CardContent />;
 }

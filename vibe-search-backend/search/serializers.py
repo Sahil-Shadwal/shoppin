@@ -33,7 +33,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'product_id', 'title', 'brand_name', 'category', 'image_url',
-            'price', 'colors', 'style_tags', 'created_at', 'updated_at'
+            'price', 'pdp_url', 'colors', 'style_tags', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
 

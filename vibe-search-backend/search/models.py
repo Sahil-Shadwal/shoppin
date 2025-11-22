@@ -57,6 +57,7 @@ class Product(models.Model):
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
     image_url = models.URLField(max_length=1000)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    pdp_url = models.URLField(max_length=1000, blank=True, null=True)  # Product page URL
     
     # Auto-extracted metadata
     colors = models.JSONField(default=list, blank=True)  # ["Black", "White"]

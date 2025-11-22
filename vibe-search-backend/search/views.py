@@ -82,6 +82,7 @@ def get_gallery(request):
     Supports pagination and filtering.
     """
     source = request.query_params.get('source')  # pinterest or instagram
+    query = request.query_params.get('query')  # filter by search query/category
     limit = int(request.query_params.get('limit', 50))
     offset = int(request.query_params.get('offset', 0))
     
@@ -89,6 +90,9 @@ def get_gallery(request):
     
     if source:
         queryset = queryset.filter(source=source)
+    
+    if query:
+        queryset = queryset.filter(query=query)
     
     images = queryset[offset:offset + limit]
     total_count = queryset.count()
@@ -241,6 +245,7 @@ def shop_the_look(request):
                         "title": product.title,
                         "image_url": product.image_url,
                         "price": product.price,
+                        "pdp_url": product.pdp_url,
                         "visual_score": score,
                         "brand": product.brand_name
                     })
@@ -328,6 +333,7 @@ def search_by_image(request):
             "title": product.title,
             "image_url": product.image_url,
             "price": product.price,
+            "pdp_url": product.pdp_url,
             "visual_score": score, 
             "brand": product.brand_name,
             "category": product.category
