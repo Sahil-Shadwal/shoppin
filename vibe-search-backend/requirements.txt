@@ -9,4 +9,5 @@ Pillow
 sentence-transformers
 requests
 python-dotenv
-ultralytics>=8.0.0
+ultralytics==8.3.61
+dj-database-url==2.1.00

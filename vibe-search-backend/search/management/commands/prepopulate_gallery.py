@@ -6,64 +6,39 @@ from search.ml_service import ml_service
 
 
 SCRAPING_TERMS = [
-    # Pinterest Boards
-    'Minimal Streetwear',
-    'Men\'s Streetwear Outfit Ideas',
-    'Streetwear Outfit Ideas',
-    'Streetwear Fashion Instagram',
-    'Luxury Fashion – Roxx Inspire',
-    'Luxury Classy Outfits',
-    'Luxury Streetwear Brands',
-    
-    # Instagram Pages
-    '@minimalstreetstyle',
-    '@outfitgrid',
-    '@outfitpage',
-    '@mensfashionpost',
-    '@stadiumgoods',
-    '@flightclub',
-    '@hodinkee',
-    '@wristcheck',
-    '@purseblog',
-    '@sunglasshut',
-    '@rayban',
-    '@prada',
-    '@cartier',
-    '@thesolesupplier',
+    # User requested sources
+    'https://in.pinterest.com/sahilshadwal/pinn/', # User's board
+    'minimalist', # Search term
 ]
 
-MAX_IMAGES_PER_SOURCE = 2  # Reduced to limit initial scrape
-MAX_TOTAL_IMAGES = 300  # Keep max 300 images in DB
-
+MAX_IMAGES_PER_SOURCE = 25  # 2 sources * 25 = 50 total
+MAX_TOTAL_IMAGES = 300
 
 class Command(BaseCommand):
     help = 'Pre-populate gallery with scraped fashion images'
  
     SCRAPINGBEE_API_KEY = 'DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN'
-    TARGET_IMAGES_PER_CATEGORY = 2
+    TARGET_IMAGES_PER_CATEGORY = 25
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS('🚀 Starting gallery pre-population...'))
+        self.stdout.write(self.style.SUCCESS('🚀 Starting gallery pre-population check...'))
         
-        # Delete old images if we're at or near capacity
+        # 🛑 SMART CHECK: If we have enough images, SKIP scraping entirely
         current_count = ScrapedImage.objects.count()
-        if current_count >= MAX_TOTAL_IMAGES:
-            # Delete oldest 50% to make room
-            delete_count = current_count // 2
-            oldest_images = ScrapedImage.objects.order_by('created_at')[:delete_count]
-            oldest_ids = list(oldest_images.values_list('id', flat=True))
-            ScrapedImage.objects.filter(id__in=oldest_ids).delete()
-            self.stdout.write(self.style.WARNING(f'Deleted {len(oldest_ids)} old images to make room'))
+        if current_count >= 40:
+            self.stdout.write(self.style.SUCCESS(f'✅ Database already has {current_count} images. Skipping scrape to save budget.'))
+            return
+
+        self.stdout.write(self.style.WARNING(f'📉 Database low ({current_count} images). Starting initial scrape (Target: 50)...'))
         
         total_added = 0
-        MAX_INITIAL_SCRAPE = 50  # Hard limit for initial scrape
+        MAX_INITIAL_SCRAPE = 50
         
         for term in SCRAPING_TERMS:
             if total_added >= MAX_INITIAL_SCRAPE:
-                self.stdout.write(self.style.SUCCESS(f'🛑 Reached limit of {MAX_INITIAL_SCRAPE} images. Stopping.'))
                 break
 
-            self.stdout.write(f'\n📸 Processing term: "{term}"')
+            self.stdout.write(f'\n📸 Processing source: "{term}"')
             
             # The original existing_count check was removed as per the instruction's implied new logic
             # where MAX_TOTAL_IMAGES and MAX_IMAGES_PER_SOURCE manage capacity.
@@ -94,7 +69,10 @@ class Command(BaseCommand):
 
     def scrape_pinterest(self, query):
         """Scrape images from Pinterest using ScrapingBee"""
-        pinterest_url = f'https://in.pinterest.com/search/pins/?q={requests.utils.quote(query)}'
+        if query.startswith('http'):
+            pinterest_url = query
+        else:
+            pinterest_url = f'https://in.pinterest.com/search/pins/?q={requests.utils.quote(query)}'
         
         extract_rules = {
             'images': {

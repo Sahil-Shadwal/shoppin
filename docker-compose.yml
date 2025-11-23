@@ -1,41 +1,23 @@
 services:
-  # PostgreSQL Database with pgvector
-  db:
-    image: ankane/pgvector:latest
-    environment:
-      POSTGRES_DB: vibesearch
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # Django Backend
   backend:
     build: ./vibe-search-backend
     command: >
       sh -c "python manage.py migrate &&
+             python manage.py prepopulate_gallery &&
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./vibe-search-backend:/app
-      - uploads_data:/app/media/uploads  # Shared volume for uploads
+      - uploads_data:/app/media/uploads
     ports:
       - "8000:8000"
+    env_file:
+      - ./vibe-search-backend/.env
     environment:
       - DEBUG=1
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/vibe_search
       - DJANGO_SETTINGS_MODULE=vibesearch.settings
       - SCRAPINGBEE_API_KEY=DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend,0.0.0.0
-    depends_on:
-      db:
-        condition: service_healthy
 
   # Next.js Frontend
   frontend:
@@ -56,5 +38,4 @@ services:
     command: npm run dev
 
 volumes:
-  postgres_data:
-  uploads_data:  # Define the shared volume
+  uploads_data:
