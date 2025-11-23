@@ -70,6 +70,40 @@ export default function Home() {
     }
   };
 
+  const handleSearch = (query: string) => {
+    // Add to browser history so back button works
+    window.history.pushState({ query }, '', `/?q=${encodeURIComponent(query)}`);
+    fetchPins(query, false);
+  };
+
+  const handleShuffle = () => {
+    fetchPins(currentQuery, true);
+  };
+
+  // Load initial pins on mount and set initial history state
+  useEffect(() => {
+    console.log('🎨 Pinterest Clone loaded');
+    
+    // Set initial history state
+    window.history.replaceState({ query: currentQuery }, '', `/?q=${encodeURIComponent(currentQuery)}`);
+    
+    // Fetch initial pins
+    fetchPins(currentQuery, false);
+  }, []);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.query) {
+        // Back button pressed - load from cache
+        fetchPins(event.state.query, false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const handleImageSearch = async (file: File) => {
     console.log(`📸 Uploading image: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
     
@@ -108,16 +142,6 @@ export default function Home() {
       alert('Failed to upload image. Please try again.');
     }
   };
-
-  const handleShuffle = () => {
-    // Fetch fresh pins with same query but shuffled
-    fetchPins(currentQuery, true);
-  };
-
-  // Load initial pins on mount
-  useEffect(() => {
-    fetchPins('Minimal Streetwear');
-  }, []);
 
   return (
     <div className="min-h-screen bg-white">
