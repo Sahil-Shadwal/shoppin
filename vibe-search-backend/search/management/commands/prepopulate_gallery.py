@@ -5,62 +5,75 @@ from search.models import ScrapedImage
 from search.ml_service import ml_service
 
 
-class Command(BaseCommand):
-    help = 'Pre-populate gallery with images from Pinterest for multiple categories'
+SCRAPING_TERMS = [
+    # Pinterest Boards
+    'Minimal Streetwear',
+    'Men\'s Streetwear Outfit Ideas',
+    'Streetwear Outfit Ideas',
+    'Streetwear Fashion Instagram',
+    'Luxury Fashion – Roxx Inspire',
+    'Luxury Classy Outfits',
+    'Luxury Streetwear Brands',
+    
+    # Instagram Pages
+    '@minimalstreetstyle',
+    '@outfitgrid',
+    '@outfitpage',
+    '@mensfashionpost',
+    '@stadiumgoods',
+    '@flightclub',
+    '@hodinkee',
+    '@wristcheck',
+    '@purseblog',
+    '@sunglasshut',
+    '@rayban',
+    '@prada',
+    '@cartier',
+    '@thesolesupplier',
+]
 
-    terms = [
-        'Minimal Streetwear',
-        "Men's Streetwear Outfit Ideas",
-        'Streetwear Outfit Ideas',
-        'Streetwear Fashion Instagram',
-        'Luxury Fashion – Roxx Inspire',
-        'Luxury Classy Outfits',
-        'Luxury Streetwear Brands',
-        '@minimalstreetstyle',
-        '@outfitgrid',
-        '@outfitpage',
-        '@mensfashionpost',
-        '@stadiumgoods',
-        '@flightclub',
-        '@hodinkee',
-        '@wristcheck',
-        '@purseblog',
-        '@sunglasshut',
-        '@rayban',
-        '@prada',
-        '@cartier',
-        '@thesolesupplier'
-    ]
+MAX_IMAGES_PER_SOURCE = 5  # ~5 images per source = ~125 total
+MAX_TOTAL_IMAGES = 300  # Keep max 300 images in DB
+
+
+class Command(BaseCommand):
+    help = 'Pre-populate gallery with scraped fashion images'
 
     SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89'
-    TARGET_IMAGES_PER_CATEGORY = 50
+    TARGET_IMAGES_PER_CATEGORY = 50 # This is likely obsolete with MAX_IMAGES_PER_SOURCE, but kept as it wasn't explicitly removed.
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS('🚀 Starting gallery pre-population...'))
         
-        total_added = 0
+        # Delete old images if we're at or near capacity
+        current_count = ScrapedImage.objects.count()
+        if current_count >= MAX_TOTAL_IMAGES:
+            # Delete oldest 50% to make room
+            delete_count = current_count // 2
+            oldest_images = ScrapedImage.objects.order_by('created_at')[:delete_count]
+            oldest_ids = list(oldest_images.values_list('id', flat=True))
+            ScrapedImage.objects.filter(id__in=oldest_ids).delete()
+            self.stdout.write(self.style.WARNING(f'Deleted {len(oldest_ids)} old images to make room'))
         
-        for category in self.CATEGORIES:
-            self.stdout.write(f'\n📸 Processing category: "{category}"')
+        total_added = 0 # Renamed from total_scraped to match original variable name
+        
+        for term in SCRAPING_TERMS:
+            self.stdout.write(f'\n📸 Processing term: "{term}"')
             
-            # Check how many images we already have for this category
-            existing_count = ScrapedImage.objects.filter(query=category).count()
-            self.stdout.write(f'   Existing images: {existing_count}')
-            
-            if existing_count >= self.TARGET_IMAGES_PER_CATEGORY:
-                self.stdout.write(self.style.WARNING(f'   ⏭️  Skipping (already has {existing_count} images)'))
-                continue
+            # The original existing_count check was removed as per the instruction's implied new logic
+            # where MAX_TOTAL_IMAGES and MAX_IMAGES_PER_SOURCE manage capacity.
             
             # Scrape images
             try:
-                images = self.scrape_pinterest(category)
+                images = self.scrape_pinterest(term)
                 
                 if not images:
-                    self.stdout.write(self.style.ERROR(f'   ❌ No images scraped for "{category}"'))
+                    self.stdout.write(self.style.ERROR(f'   ❌ No images scraped for "{term}"'))
                     continue
                 
-                # Store in database with embeddings
-                added = self.store_images(images, category)
+                # Store in database with embeddings (limit to MAX_IMAGES_PER_SOURCE)
+                images_to_store = images[:MAX_IMAGES_PER_SOURCE]
+                added = self.store_images(images_to_store, term)
                 total_added += added
                 
                 self.stdout.write(self.style.SUCCESS(f'   ✅ Added {added} images'))
