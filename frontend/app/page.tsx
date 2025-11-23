@@ -71,52 +71,22 @@ export default function Home() {
   };
 
   const handleImageSearch = async (file: File) => {
-    setLoading(true);
     console.log(`📸 Uploading image: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
     
-    try {
-      // Create local preview URL
-      const objectUrl = URL.createObjectURL(file);
-      setUploadedImage(objectUrl);
-      
-      const formData = new FormData();
-      formData.append('image', file);
-
-      console.log('🔄 Sending image to backend...');
-      const response = await fetch('/api/search-image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      console.log(`📡 Response status: ${response.status}`);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Backend error:', errorText);
-        throw new Error(`Server error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('📦 Response data:', data);
-
-      if (data.success && data.pins) {
-        setPins(data.pins);
-        setCurrentQuery('Visual Search');
-        console.log(`✅ Found ${data.pins.length} matches for uploaded image`);
-      } else {
-        console.error('❌ Search failed:', data.error || 'Unknown error');
-        // Silently fail - set empty results
-        setPins([]);
-        setCurrentQuery('Visual Search - No Results');
-      }
-    } catch (error) {
-      console.error('💥 Error searching image:', error);
-      // Silently fail - set empty results
-      setPins([]);
-      setCurrentQuery('Visual Search - Error');
-    } finally {
-      setLoading(false);
-    }
+    // Create preview URL
+    const objectUrl = URL.createObjectURL(file);
+    
+    // Store in sessionStorage for search page
+    sessionStorage.setItem('searchImageUrl', objectUrl);
+    
+    // Convert file to base64 for storage
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      sessionStorage.setItem('searchImageFile', reader.result as string);
+      // Redirect to search page
+      window.location.href = '/search';
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleShuffle = () => {

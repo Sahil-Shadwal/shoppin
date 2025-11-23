@@ -13,14 +13,21 @@ export async function POST(request: Request) {
     }
 
     // Forward to Django backend
-    // Forward to Django backend
     const backendFormData = new FormData();
     // Ensure we pass the file with a filename, otherwise Django might not recognize it as a file upload
     const imageFile = image as File;
     backendFormData.append('image', imageFile, imageFile.name || 'image.jpg');
     
-    // Add default top_k
-    backendFormData.append('top_k', '20');
+    // Pass through additional search parameters
+    const topK = formData.get('top_k') || '20';
+    const maxPrice = formData.get('max_price');
+    const negativeQuery = formData.get('negative_query');
+    const category = formData.get('category');
+    
+    backendFormData.append('top_k', topK.toString());
+    if (maxPrice) backendFormData.append('max_price', maxPrice.toString());
+    if (negativeQuery) backendFormData.append('negative_query', negativeQuery.toString());
+    if (category) backendFormData.append('category', category.toString());
 
     console.log(`Proxying image search to Django: ${imageFile.name}, size: ${imageFile.size}`);
 
