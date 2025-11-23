@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import SearchControls from '../components/SearchControls';
-import MasonryGallery from '../components/MasonryGallery';
+import ProductCard from '../components/ProductCard';
 import PinModal from '../components/PinModal';
 
 interface Pin {
@@ -32,6 +32,7 @@ export default function SearchPage() {
   // Search parameters
   const [maxPrice, setMaxPrice] = useState<number>(500);
   const [negativeQuery, setNegativeQuery] = useState<string>('');
+  const [textQuery, setTextQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Load image from sessionStorage on mount
@@ -39,18 +40,28 @@ export default function SearchPage() {
     const storedImageUrl = sessionStorage.getItem('searchImageUrl');
     const storedImageData = sessionStorage.getItem('searchImageFile');
     
+    console.log('📦 Loading from sessionStorage:', { storedImageUrl: !!storedImageUrl, storedImageData: !!storedImageData });
+    
     if (storedImageUrl) {
       setUploadedImage(storedImageUrl);
+      console.log('✅ Set uploaded image URL');
     }
     
     if (storedImageData) {
       // Reconstruct File from stored data
-      const blob = dataURLtoBlob(storedImageData);
-      const file = new File([blob], 'uploaded-image.jpg', { type: 'image/jpeg' });
-      setImageFile(file);
-      
-      // Trigger initial search
-      performSearch(file, maxPrice, negativeQuery, selectedCategory);
+      try {
+        const blob = dataURLtoBlob(storedImageData);
+        const file = new File([blob], 'uploaded-image.jpg', { type: 'image/jpeg' });
+        setImageFile(file);
+        console.log('✅ Reconstructed image file:', file.size, 'bytes');
+        
+        // Trigger initial search after a brief delay to ensure state is set
+        setTimeout(() => {
+          performSearch(file, maxPrice, negativeQuery, textQuery, selectedCategory);
+        }, 100);
+      } catch (error) {
+        console.error('❌ Failed to reconstruct image file:', error);
+      }
     }
   }, []);
 
@@ -70,12 +81,13 @@ export default function SearchPage() {
     file: File | null,
     price: number,
     negative: string,
+    text: string,
     category: string | null
   ) => {
     if (!file) return;
     
     setLoading(true);
-    console.log(`🔍 Searching with: maxPrice=${price}, negative="${negative}", category=${category}`);
+    console.log(`🔍 Searching with: maxPrice=${price}, negative="${negative}", text="${text}", category=${category}`);
     
     try {
       const formData = new FormData();
@@ -88,6 +100,10 @@ export default function SearchPage() {
       
       if (negative.trim()) {
         formData.append('negative_query', negative.trim());
+      }
+      
+      if (text.trim()) {
+        formData.append('query_text', text.trim());
       }
       
       if (category) {
@@ -121,8 +137,8 @@ export default function SearchPage() {
   };
 
   const handleSearchUpdate = useCallback(() => {
-    performSearch(imageFile, maxPrice, negativeQuery, selectedCategory);
-  }, [imageFile, maxPrice, negativeQuery, selectedCategory]);
+    performSearch(imageFile, maxPrice, negativeQuery, textQuery, selectedCategory);
+  }, [imageFile, maxPrice, negativeQuery, textQuery, selectedCategory]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -149,9 +165,11 @@ export default function SearchPage() {
                 uploadedImage={uploadedImage}
                 maxPrice={maxPrice}
                 negativeQuery={negativeQuery}
+                textQuery={textQuery}
                 selectedCategory={selectedCategory}
                 onMaxPriceChange={setMaxPrice}
                 onNegativeQueryChange={setNegativeQuery}
+                onTextQueryChange={setTextQuery}
                 onCategoryChange={setSelectedCategory}
                 onSearch={handleSearchUpdate}
                 loading={loading}
@@ -168,15 +186,27 @@ export default function SearchPage() {
               </div>
             ) : pins.length > 0 ? (
               <>
-                <div className="mb-4">
+                <div className="mb-6">
                   <p className="text-sm text-gray-600">
                     Found <span className="font-semibold text-gray-900">{pins.length}</span> matching items
                   </p>
                 </div>
-                <MasonryGallery 
-                  pins={pins} 
-                  onPinClick={(pin) => setSelectedPin(pin)} 
-                />
+                
+                {/* Product Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {pins.map((pin) => (
+                    <ProductCard
+                      key={pin.id}
+                      id={pin.id}
+                      imageUrl={pin.imageUrl}
+                      title={pin.title}
+                      brand={pin.brand || 'Unknown Brand'}
+                      price={pin.price || 0}
+                      score={pin.score || 0}
+                      productUrl={pin.sourceUrl || '#'}
+                    />
+                  ))}
+                </div>
               </>
             ) : (
               <div className="text-center py-20 bg-white rounded-xl border-2 border-dashed border-gray-300">

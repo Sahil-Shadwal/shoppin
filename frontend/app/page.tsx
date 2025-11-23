@@ -73,20 +73,40 @@ export default function Home() {
   const handleImageSearch = async (file: File) => {
     console.log(`📸 Uploading image: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
     
-    // Create preview URL
-    const objectUrl = URL.createObjectURL(file);
-    
-    // Store in sessionStorage for search page
-    sessionStorage.setItem('searchImageUrl', objectUrl);
-    
-    // Convert file to base64 for storage
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      sessionStorage.setItem('searchImageFile', reader.result as string);
-      // Redirect to search page
-      window.location.href = '/search';
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Upload to temp storage endpoint
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const uploadResponse = await fetch('/api/upload-temp', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload image');
+      }
+      
+      const uploadData = await uploadResponse.json();
+      const imageUrl = uploadData.imageUrl;
+      
+      console.log('✅ Image cached at:', imageUrl);
+      
+      // Store permanent URL in sessionStorage
+      sessionStorage.setItem('searchImageUrl', imageUrl);
+      
+      // Convert file to base64 for storage
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        sessionStorage.setItem('searchImageFile', reader.result as string);
+        // Redirect to search page
+        window.location.href = '/search';
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('❌ Failed to upload image:', error);
+      alert('Failed to upload image. Please try again.');
+    }
   };
 
   const handleShuffle = () => {

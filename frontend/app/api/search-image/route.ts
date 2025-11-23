@@ -22,11 +22,13 @@ export async function POST(request: Request) {
     const topK = formData.get('top_k') || '20';
     const maxPrice = formData.get('max_price');
     const negativeQuery = formData.get('negative_query');
+    const queryText = formData.get('query_text');
     const category = formData.get('category');
     
     backendFormData.append('top_k', topK.toString());
     if (maxPrice) backendFormData.append('max_price', maxPrice.toString());
     if (negativeQuery) backendFormData.append('negative_query', negativeQuery.toString());
+    if (queryText) backendFormData.append('query_text', queryText.toString());
     if (category) backendFormData.append('category', category.toString());
 
     console.log(`Proxying image search to Django: ${imageFile.name}, size: ${imageFile.size}`);

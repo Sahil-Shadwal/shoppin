@@ -2,14 +2,17 @@
 
 import React from 'react';
 import { Search, X } from 'lucide-react';
+import { type } from 'os';
 
 interface SearchControlsProps {
   uploadedImage: string | null;
   maxPrice: number;
   negativeQuery: string;
+  textQuery: string;
   selectedCategory: string | null;
   onMaxPriceChange: (price: number) => void;
   onNegativeQueryChange: (query: string) => void;
+  onTextQueryChange: (query: string) => void;
   onCategoryChange: (category: string | null) => void;
   onSearch: () => void;
   loading: boolean;
@@ -19,9 +22,11 @@ export default function SearchControls({
   uploadedImage,
   maxPrice,
   negativeQuery,
+  textQuery,
   selectedCategory,
   onMaxPriceChange,
   onNegativeQueryChange,
+  onTextQueryChange,
   onCategoryChange,
   onSearch,
   loading
@@ -51,6 +56,23 @@ export default function SearchControls({
           </div>
         </div>
       )}
+
+      {/* Text Search Input */}
+      <div>
+        <label className="text-sm font-semibold text-gray-700 mb-2 block">
+          Style Description
+        </label>
+        <input
+          type="text"
+          value={textQuery}
+          onChange={(e) => onTextQueryChange(e.target.value)}
+          placeholder='e.g., "same vibe but blue"'
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Describe the style you're looking for
+        </p>
+      </div>
 
       {/* Max Price Slider */}
       <div>
