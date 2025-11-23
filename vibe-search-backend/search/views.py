@@ -19,7 +19,7 @@ from .serializers import (
 from .ml_service import ml_service
 
 # Global YOLO model (load once)
-yolo = YOLO('yolov8n.pt')  # using the tiny model for speed
+yolo = YOLO('yolov8n-pose.pt')  # using the pose model
 
 # Helper to download image to a temporary file
 def download_image(url: str) -> str:
@@ -130,7 +130,7 @@ def get_products(request):
 def shop_the_look(request):
     """
     'Shop the Look' endpoint.
-    Uses YOLO to detect person in image, crops that region, and searches across categories.
+    Uses YOLO-Pose to detect person and keypoints, crops specific regions based on category.
     """
     try:
         print("Shop the Look request received")
@@ -146,21 +146,23 @@ def shop_the_look(request):
         local_path = download_image(image_url)
         
         # 2️⃣ Run YOLO detection to find person
-        print("Running YOLO detection...")
-        detections = yolo.predict(source=local_path, conf=0.25, verbose=False)[0].boxes
+        print("Running YOLO-Pose detection...")
+        results = yolo.predict(source=local_path, conf=0.25, verbose=False)[0]
+        detections = results.boxes
+        keypoints = results.keypoints
         
         # Find the person with highest confidence
-        person_box = None
+        person_idx = -1
         max_conf = 0
-        for det in detections:
+        
+        for i, det in enumerate(detections):
             class_id = int(det.cls)
             class_name = yolo.names[class_id]
             conf = float(det.conf)
-            print(f"Detected: {class_name} (conf: {conf:.2f})")
             
             if class_name == 'person' and conf > max_conf:
                 max_conf = conf
-                person_box = det
+                person_idx = i
         
         # 3️⃣ Generate query embedding
         query_embedding = None
@@ -170,35 +172,132 @@ def shop_the_look(request):
         requested_category = request.data.get('category')
         print(f"Requested category for cropping: {requested_category}") # DEBUG
 
-        if person_box is not None:
-            # Crop person region and use it as query
-            print(f"Found person with confidence {max_conf:.2f}, cropping region")
+        if person_idx != -1:
+            # Get person box and keypoints
+            person_box = detections[person_idx]
+            kpts = keypoints[person_idx].xy[0].cpu().numpy() # (17, 2) array of x,y
+            
+            print(f"Found person with confidence {max_conf:.2f}")
             x1, y1, x2, y2 = map(int, person_box.xyxy[0].tolist())
             img = Image.open(local_path)
             img_width, img_height = img.size
             
-            # --- Heuristic Cropping Logic ---
-            p_width = x2 - x1
-            p_height = y2 - y1
+            # Keypoint indices for COCO format:
+            # 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear
+            # 5: left_shoulder, 6: right_shoulder, 7: left_elbow, 8: right_elbow
+            # 9: left_wrist, 10: right_wrist, 11: left_hip, 12: right_hip
+            # 13: left_knee, 14: right_knee, 15: left_ankle, 16: right_ankle
             
             crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
             
+            # Helper to get bounding box of specific keypoints
+            def get_kpt_box(indices, padding=0.1):
+                valid_kpts = [kpts[i] for i in indices if kpts[i][0] > 0 and kpts[i][1] > 0]
+                if not valid_kpts:
+                    return None
+                
+                kx = [k[0] for k in valid_kpts]
+                ky = [k[1] for k in valid_kpts]
+                
+                min_x, max_x = min(kx), max(kx)
+                min_y, max_y = min(ky), max(ky)
+                
+                w = max_x - min_x
+                h = max_y - min_y
+                
+                pad_x = w * padding
+                pad_y = h * padding
+                
+                return (
+                    max(0, int(min_x - pad_x)),
+                    max(0, int(min_y - pad_y)),
+                    min(img_width, int(max_x + pad_x)),
+                    min(img_height, int(max_y + pad_y))
+                )
+
             if requested_category == 'tops':
-                # Top 60% of person
-                crop_y2 = y1 + int(p_height * 0.6)
-                print("Applied 'tops' crop (Top 60%)")
+                # Shoulders to Hips
+                box = get_kpt_box([5, 6, 11, 12], padding=0.2)
+                if box:
+                    crop_x1, crop_y1, crop_x2, crop_y2 = box
+                    print("Applied 'tops' crop (Shoulders to Hips)")
+                else:
+                    # Fallback
+                    p_height = y2 - y1
+                    crop_y2 = y1 + int(p_height * 0.6)
+                    print("Fallback: 'tops' crop (Top 60%)")
+                    
             elif requested_category == 'bottoms':
-                # Bottom 50% of person
-                crop_y1 = y1 + int(p_height * 0.5)
-                print("Applied 'bottoms' crop (Bottom 50%)")
+                # Hips to Ankles
+                box = get_kpt_box([11, 12, 15, 16], padding=0.1)
+                if box:
+                    crop_x1, crop_y1, crop_x2, crop_y2 = box
+                    print("Applied 'bottoms' crop (Hips to Ankles)")
+                else:
+                    # Fallback
+                    p_height = y2 - y1
+                    crop_y1 = y1 + int(p_height * 0.4)
+                    print("Fallback: 'bottoms' crop (Bottom 60%)")
+                    
             elif requested_category == 'footwear':
-                # Bottom 20% of person
-                crop_y1 = y1 + int(p_height * 0.8)
-                print("Applied 'footwear' crop (Bottom 20%)")
+                # Ankles only, sized relative to person width
+                valid_ankles = [kpts[i] for i in [15, 16] if kpts[i][0] > 0 and kpts[i][1] > 0]
+                box = None
+                
+                if valid_ankles:
+                    kx = [k[0] for k in valid_ankles]
+                    ky = [k[1] for k in valid_ankles]
+                    
+                    # Center of ankles
+                    cx = sum(kx) / len(kx)
+                    cy = sum(ky) / len(ky)
+                    
+                    # Person width context
+                    p_w = x2 - x1
+                    
+                    # Target crop size
+                    target_w = max(max(kx) - min(kx), p_w * 0.5)
+                    target_h = max(max(ky) - min(ky), p_w * 0.4)
+                    
+                    # Define box centered on ankles, but shifted down slightly
+                    half_w = target_w / 2
+                    
+                    # Top: 20% of height above center, Bottom: 80% below
+                    # Actually, let's just center X, and put Y mostly below
+                    
+                    box = (
+                        max(0, int(cx - half_w)),
+                        max(0, int(cy - target_h * 0.3)), # 30% up
+                        min(img_width, int(cx + half_w)),
+                        min(img_height, int(cy + target_h * 0.9)) # 90% down
+                    )
+                    print("Applied 'footwear' crop (Ankles relative to person size)")
+                
+                if box:
+                    crop_x1, crop_y1, crop_x2, crop_y2 = box
+                else:
+                    # Fallback to knees if ankles missing
+                    box = get_kpt_box([13, 14], padding=0.4)
+                    if box:
+                        crop_x1, crop_y1, crop_x2, crop_y2 = box
+                        print("Fallback: 'footwear' crop (Knees)")
+                    else:
+                        # Fallback
+                        p_height = y2 - y1
+                        crop_y1 = y1 + int(p_height * 0.85)
+                        print("Fallback: 'footwear' crop (Bottom 15%)")
+            
             elif requested_category == 'outerwear':
-                # Top 70% of person
-                crop_y2 = y1 + int(p_height * 0.7)
-                print("Applied 'outerwear' crop (Top 70%)")
+                # Shoulders to Knees
+                box = get_kpt_box([5, 6, 13, 14], padding=0.15)
+                if box:
+                    crop_x1, crop_y1, crop_x2, crop_y2 = box
+                    print("Applied 'outerwear' crop (Shoulders to Knees)")
+                else:
+                    # Fallback
+                    p_height = y2 - y1
+                    crop_y2 = y1 + int(p_height * 0.75)
+                    print("Fallback: 'outerwear' crop (Top 75%)")
             
             # Ensure coordinates are within image bounds and valid
             crop_x1 = max(0, int(crop_x1))
@@ -207,7 +306,7 @@ def shop_the_look(request):
             crop_y2 = min(img_height, int(crop_y2))
             
             # Safety check: if crop is too small or invalid, revert to full person
-            if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
+            if crop_x2 <= crop_x1 + 10 or crop_y2 <= crop_y1 + 10:
                 print("Warning: Invalid crop dimensions, reverting to full person")
                 crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
 
@@ -219,20 +318,7 @@ def shop_the_look(request):
                 crop_y2 / img_height
             ]
             
-            # Add some padding (10%) to capture context (optional, maybe less for specific items)
-            # For specific items, we might want less padding to be precise
-            padding_scale = 0.05 if requested_category else 0.1
-            
-            width, height = img.size
-            padding_x = int((crop_x2 - crop_x1) * padding_scale)
-            padding_y = int((crop_y2 - crop_y1) * padding_scale)
-            
-            final_x1 = max(0, crop_x1 - padding_x)
-            final_y1 = max(0, crop_y1 - padding_y)
-            final_x2 = min(width, crop_x2 + padding_x)
-            final_y2 = min(height, crop_y2 + padding_y)
-            
-            person_region = img.crop((final_x1, final_y1, final_x2, final_y2))
+            person_region = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
             
             # Save cropped region
             fd, region_path = tempfile.mkstemp(suffix='.jpg')
