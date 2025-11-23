@@ -301,52 +301,48 @@ def shop_the_look(request):
                         print("Fallback: 'bottoms' crop (Bottom 60%)")
                         
                 elif requested_category == 'footwear':
-                    # Ankles only, sized relative to person width
-                    valid_ankles = [kpts[i] for i in [15, 16] if kpts[i][0] > 0 and kpts[i][1] > 0]
-                    box = None
+                    # IMPROVED: Cover BOTH shoes properly, using knees to ankles + extra padding
+                    # This ensures we get both shoes even when knees are bent/folded
                     
-                    if valid_ankles:
-                        kx = [k[0] for k in valid_ankles]
-                        ky = [k[1] for k in valid_ankles]
+                    # Get all relevant keypoints: knees (13, 14) and ankles (15, 16)
+                    relevant_kpts = [13, 14, 15, 16]  # left_knee, right_knee, left_ankle, right_ankle
+                    valid_kpts = [kpts[i] for i in relevant_kpts if kpts[i][0] > 0 and kpts[i][1] > 0]
+                    
+                    if len(valid_kpts) >= 2:  # Need at least 2 keypoints
+                        kx = [k[0] for k in valid_kpts]
+                        ky = [k[1] for k in valid_kpts]
                         
-                        # Center of ankles
-                        cx = sum(kx) / len(kx)
-                        cy = sum(ky) / len(ky)
+                        min_x, max_x = min(kx), max(kx)
+                        min_y, max_y = min(ky), max(ky)
                         
-                        # Person width context
+                        # Person context for sizing
                         p_w = x2 - x1
+                        p_h = y2 - y1
                         
-                        # Target crop size
-                        target_w = max(max(kx) - min(kx), p_w * 0.5)
-                        target_h = max(max(ky) - min(ky), p_w * 0.4)
+                        # CRITICAL: Generous padding to capture BOTH shoes
+                        # Horizontal: ensure we cover full width of both shoes
+                        w = max_x - min_x
+                        pad_x = max(w * 0.8, p_w * 0.3)  # At least 30% of person width or 80% of detected range
                         
-                        # Define box centered on ankles, but shifted down slightly
-                        half_w = target_w / 2
-                        
-                        # Top: 20% of height above center, Bottom: 80% below
-                        # Actually, let's just center X, and put Y mostly below
+                        # Vertical: extend significantly below ankles for full shoes
+                        h = max_y - min_y
+                        pad_y_top = h * 0.2   # Small padding above (from knees)
+                        pad_y_bottom = max(h * 1.0, p_h * 0.25)  # Generous padding below ankles for shoes
                         
                         box = (
-                            max(0, int(cx - half_w)),
-                            max(0, int(cy - target_h * 0.3)), # 30% up
-                            min(img_width, int(cx + half_w)),
-                            min(img_height, int(cy + target_h * 0.9)) # 90% down
+                            max(0, int(min_x - pad_x)),
+                            max(0, int(min_y - pad_y_top)),
+                            min(img_width, int(max_x + pad_x)),
+                            min(img_height, int(max_y + pad_y_bottom))
                         )
-                        print("Applied 'footwear' crop (Ankles relative to person size)")
-                    
-                    if box:
+                        
                         crop_x1, crop_y1, crop_x2, crop_y2 = box
+                        print(f"✅ IMPROVED footwear crop: Both shoes covered | Box: {box} | Width: {box[2]-box[0]}px, Height: {box[3]-box[1]}px")
                     else:
-                        # Fallback to knees if ankles missing
-                        box = get_kpt_box([13, 14], padding=0.4)
-                        if box:
-                            crop_x1, crop_y1, crop_x2, crop_y2 = box
-                            print("Fallback: 'footwear' crop (Knees)")
-                        else:
-                            # Fallback
-                            p_height = y2 - y1
-                            crop_y1 = y1 + int(p_height * 0.85)
-                            print("Fallback: 'footwear' crop (Bottom 15%)")
+                        # Fallback: use bottom 30% of person
+                        p_height = y2 - y1
+                        crop_y1 = y1 + int(p_height * 0.7)
+                        print("⚠️ Fallback: Using bottom 30% of person for footwear")
                 
                 elif requested_category == 'outerwear':
                     # Shoulders to Knees
