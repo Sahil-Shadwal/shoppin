@@ -32,15 +32,15 @@ SCRAPING_TERMS = [
     '@thesolesupplier',
 ]
 
-MAX_IMAGES_PER_SOURCE = 5  # ~5 images per source = ~125 total
+MAX_IMAGES_PER_SOURCE = 2  # Reduced to limit initial scrape
 MAX_TOTAL_IMAGES = 300  # Keep max 300 images in DB
 
 
 class Command(BaseCommand):
     help = 'Pre-populate gallery with scraped fashion images'
-
-    SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89'
-    TARGET_IMAGES_PER_CATEGORY = 50 # This is likely obsolete with MAX_IMAGES_PER_SOURCE, but kept as it wasn't explicitly removed.
+ 
+    SCRAPINGBEE_API_KEY = 'DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN'
+    TARGET_IMAGES_PER_CATEGORY = 2
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS('🚀 Starting gallery pre-population...'))
@@ -55,9 +55,14 @@ class Command(BaseCommand):
             ScrapedImage.objects.filter(id__in=oldest_ids).delete()
             self.stdout.write(self.style.WARNING(f'Deleted {len(oldest_ids)} old images to make room'))
         
-        total_added = 0 # Renamed from total_scraped to match original variable name
+        total_added = 0
+        MAX_INITIAL_SCRAPE = 50  # Hard limit for initial scrape
         
         for term in SCRAPING_TERMS:
+            if total_added >= MAX_INITIAL_SCRAPE:
+                self.stdout.write(self.style.SUCCESS(f'🛑 Reached limit of {MAX_INITIAL_SCRAPE} images. Stopping.'))
+                break
+
             self.stdout.write(f'\n📸 Processing term: "{term}"')
             
             # The original existing_count check was removed as per the instruction's implied new logic

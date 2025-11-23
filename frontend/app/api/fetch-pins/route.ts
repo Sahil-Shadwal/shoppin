@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const DJANGO_BACKEND_URL = process.env.DJANGO_BACKEND_URL || 'http://127.0.0.1:8000';
-const SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89';
-
+const SCRAPINGBEE_API_KEY = 'DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN';
+ 
 interface Pin {
   id: string;
   imageUrl: string;
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const dbPins = await fetchFromDatabase(query, false);
     
     // If we have enough cached images, return them immediately
-    if (dbPins.length >= 30) {
+    if (dbPins.length >= 15) {
       console.log(`✅ Returning ${dbPins.length} cached images for "${query}"`);
       return NextResponse.json({
         success: true,

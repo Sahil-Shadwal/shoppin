@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import SearchControls from '../components/SearchControls';
@@ -19,7 +19,7 @@ interface Pin {
   score?: number;
 }
 
-export default function SearchPage() {
+function SearchPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -224,5 +224,18 @@ export default function SearchPage() {
         onClose={() => setSelectedPin(null)} 
       />
     </div>
+  );
+}
+
+// Wrap in Suspense to handle useSearchParams in production build
+export default function SearchPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-red-600"></div>
+      </div>
+    }>
+      <SearchPageContent />
+    </Suspense>
   );
 }

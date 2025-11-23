@@ -25,6 +25,29 @@ yolo_obj = YOLO('yolov8n.pt')   # using the object detection model
 
 # Helper to download image to a temporary file
 def download_image(url: str) -> str:
+    # Handle local uploads (Docker shared volume)
+    if url.startswith('/uploads/'):
+        # In Docker, mapped to /app/media/uploads
+        # Locally, might be different, but let's assume standard path relative to backend root
+        
+        # Check if running in Docker (simple check: if /app/media/uploads exists)
+        docker_path = os.path.join('/app/media', url.lstrip('/'))
+        local_dev_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'frontend', 'public', url.lstrip('/'))
+        
+        source_path = None
+        if os.path.exists(docker_path):
+            source_path = docker_path
+        elif os.path.exists(local_dev_path):
+            source_path = local_dev_path
+            
+        if source_path:
+            print(f"📂 Found local image at: {source_path}")
+            fd, path = tempfile.mkstemp(suffix='.jpg')
+            import shutil
+            shutil.copy2(source_path, path)
+            return path
+            
+    # Default: Download from URL
     resp = requests.get(url, stream=True, timeout=10)
     resp.raise_for_status()
     fd, path = tempfile.mkstemp(suffix='.jpg')

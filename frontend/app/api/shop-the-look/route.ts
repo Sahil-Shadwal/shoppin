@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 
+const DJANGO_BACKEND_URL = process.env.DJANGO_BACKEND_URL || 'http://127.0.0.1:8000';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const response = await fetch('http://localhost:8000/api/search/shop-the-look/', {
+    const response = await fetch(`${DJANGO_BACKEND_URL}/api/search/shop-the-look/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

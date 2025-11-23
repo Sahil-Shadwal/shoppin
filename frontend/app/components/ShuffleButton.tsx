@@ -1,5 +1,10 @@
 import { Sparkles } from "lucide-react";
 
+interface ShuffleButtonProps {
+  onShuffle: () => void;
+  isLoading: boolean;
+}
+
 export default function ShuffleButton({ onShuffle, isLoading }: ShuffleButtonProps) {
   return (
     <button

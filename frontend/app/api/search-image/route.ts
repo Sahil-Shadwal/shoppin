@@ -1,13 +1,18 @@
 import { NextResponse } from 'next/server';
 
+// Use environment variable for backend URL (Docker: http://backend:8000, Local: http://127.0.0.1:8000)
+const DJANGO_BACKEND_URL = process.env.DJANGO_BACKEND_URL || 'http://127.0.0.1:8000';
+
 export async function POST(request: Request) {
   try {
+    console.log('📸 Proxying image search to Django backend...');
+    
     const formData = await request.formData();
-    const image = formData.get('image');
+    const imageFile = formData.get('image') as File;
 
-    if (!image) {
+    if (!imageFile) {
       return NextResponse.json(
-        { error: 'No image provided' },
+        { error: 'No image file provided' },
         { status: 400 }
       );
     }
@@ -15,7 +20,6 @@ export async function POST(request: Request) {
     // Forward to Django backend
     const backendFormData = new FormData();
     // Ensure we pass the file with a filename, otherwise Django might not recognize it as a file upload
-    const imageFile = image as File;
     backendFormData.append('image', imageFile, imageFile.name || 'image.jpg');
     
     // Pass through additional search parameters
@@ -33,7 +37,7 @@ export async function POST(request: Request) {
 
     console.log(`Proxying image search to Django: ${imageFile.name}, size: ${imageFile.size}`);
 
-    const response = await fetch('http://127.0.0.1:8000/api/search/image/', {
+    const response = await fetch(`${DJANGO_BACKEND_URL}/api/search/image/`, {
       method: 'POST',
       body: backendFormData,
       // Do NOT set Content-Type header, let fetch set it with boundary
