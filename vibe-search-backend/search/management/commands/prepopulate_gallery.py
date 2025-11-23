@@ -39,7 +39,7 @@ MAX_TOTAL_IMAGES = 300  # Keep max 300 images in DB
 class Command(BaseCommand):
     help = 'Pre-populate gallery with scraped fashion images'
 
-    SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89'
+    SCRAPINGBEE_API_KEY = 'DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN'
     TARGET_IMAGES_PER_CATEGORY = 50 # This is likely obsolete with MAX_IMAGES_PER_SOURCE, but kept as it wasn't explicitly removed.
 
     def handle(self, *args, **options):

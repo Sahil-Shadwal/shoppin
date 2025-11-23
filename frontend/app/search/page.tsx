@@ -30,10 +30,8 @@ export default function SearchPage() {
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   
   // Search parameters
-  const [maxPrice, setMaxPrice] = useState<number>(500);
-  const [negativeQuery, setNegativeQuery] = useState<string>('');
+  const [maxPrice, setMaxPrice] = useState<number>(50000);
   const [textQuery, setTextQuery] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Load image from sessionStorage on mount
   useEffect(() => {
@@ -57,7 +55,7 @@ export default function SearchPage() {
         
         // Trigger initial search after a brief delay to ensure state is set
         setTimeout(() => {
-          performSearch(file, maxPrice, negativeQuery, textQuery, selectedCategory);
+          performSearch(file, maxPrice, textQuery);
         }, 100);
       } catch (error) {
         console.error('❌ Failed to reconstruct image file:', error);
@@ -80,34 +78,24 @@ export default function SearchPage() {
   const performSearch = async (
     file: File | null,
     price: number,
-    negative: string,
-    text: string,
-    category: string | null
+    text: string
   ) => {
     if (!file) return;
     
     setLoading(true);
-    console.log(`🔍 Searching with: maxPrice=${price}, negative="${negative}", text="${text}", category=${category}`);
+    console.log(`🔍 Searching with: maxPrice=${price}, text="${text}"`);
     
     try {
       const formData = new FormData();
       formData.append('image', file);
       formData.append('top_k', '30');
       
-      if (price < 500) {
+      if (price < 50000) {
         formData.append('max_price', price.toString());
-      }
-      
-      if (negative.trim()) {
-        formData.append('negative_query', negative.trim());
       }
       
       if (text.trim()) {
         formData.append('query_text', text.trim());
-      }
-      
-      if (category) {
-        formData.append('category', category);
       }
 
       const response = await fetch('/api/search-image', {
@@ -137,8 +125,8 @@ export default function SearchPage() {
   };
 
   const handleSearchUpdate = useCallback(() => {
-    performSearch(imageFile, maxPrice, negativeQuery, textQuery, selectedCategory);
-  }, [imageFile, maxPrice, negativeQuery, textQuery, selectedCategory]);
+    performSearch(imageFile, maxPrice, textQuery);
+  }, [imageFile, maxPrice, textQuery]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -164,13 +152,9 @@ export default function SearchPage() {
               <SearchControls
                 uploadedImage={uploadedImage}
                 maxPrice={maxPrice}
-                negativeQuery={negativeQuery}
                 textQuery={textQuery}
-                selectedCategory={selectedCategory}
                 onMaxPriceChange={setMaxPrice}
-                onNegativeQueryChange={setNegativeQuery}
                 onTextQueryChange={setTextQuery}
-                onCategoryChange={setSelectedCategory}
                 onSearch={handleSearchUpdate}
                 loading={loading}
               />

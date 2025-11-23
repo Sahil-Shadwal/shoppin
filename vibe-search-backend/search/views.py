@@ -408,11 +408,27 @@ def shop_the_look(request):
         else:
             categories = ['tops', 'bottoms', 'footwear', 'outerwear', 'accessories']
             
+        requested_brand = request.data.get('brand')
+        if requested_brand and requested_brand.lower() == 'all':
+            requested_brand = None
+            
+        requested_color = request.data.get('color')
+        if requested_color and requested_color.lower() == 'all':
+            requested_color = None
+            
         results = {}
         
-        print(f"Scanning categories: {categories}") # DEBUG
+        print(f"Scanning categories: {categories} | Brand: {requested_brand} | Color: {requested_color}") # DEBUG
         for category in categories:
             queryset = Product.objects.filter(category__icontains=category)
+            
+            if requested_brand:
+                queryset = queryset.filter(brand_name__icontains=requested_brand)
+                
+            if requested_color:
+                # Filter by title containing the color since 'colors' field might be empty
+                queryset = queryset.filter(title__icontains=requested_color)
+            
             print(f"Category {category}: Found {queryset.count()} products in DB") # DEBUG
             
             if not queryset.exists():
@@ -513,6 +529,40 @@ def search_by_image(request):
     # Check for optional text query for hybrid search
     query_text = request.data.get('query_text')
     text_embedding = None
+    category = request.data.get('category') # Initialize category
+    
+    # Gemini Parsing
+    if query_text:
+        print(f"Parsing query with Gemini: {query_text}")
+        try:
+            from .gemini_utils import parse_search_query
+            parsed_data = parse_search_query(query_text)
+            
+            # Update query_text with refined version
+            if parsed_data.get('refined_query'):
+                query_text = parsed_data['refined_query']
+                print(f"Refined Query: {query_text}")
+                
+            # Update negative query
+            if parsed_data.get('negative_query'):
+                negative_query = parsed_data['negative_query']
+                print(f"Inferred Negative Query: {negative_query}")
+                
+            # Update category if not explicitly provided
+            if not request.data.get('category') and parsed_data.get('category'):
+                category = parsed_data['category']
+                print(f"Inferred Category: {category}")
+                
+            # Update max_price if inferred
+            if parsed_data.get('max_price'):
+                max_price = parsed_data['max_price']
+                print(f"Inferred Max Price: {max_price}")
+                
+        except ImportError:
+            print("Gemini utils not found, skipping parsing")
+        except Exception as e:
+            print(f"Error in Gemini parsing: {e}")
+
     if query_text:
         print(f"Generating text embedding for: {query_text}")
         text_embedding = ml_service.generate_text_embedding(query_text)
@@ -524,7 +574,7 @@ def search_by_image(request):
         negative_embedding = ml_service.generate_text_embedding(negative_query)
 
     # Check for category filter
-    category = request.data.get('category')
+    # category variable might have been updated by Gemini
     queryset = Product.objects.all()
     
     if category:

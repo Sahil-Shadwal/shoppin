@@ -32,15 +32,24 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedBrand, setSelectedBrand] = useState<string>('All');
+  const [selectedColor, setSelectedColor] = useState<string>('All');
   const [groupedResults, setGroupedResults] = useState<Record<string, Product[]>>({});
   const [detectedBox, setDetectedBox] = useState<number[] | null>(null);
 
-  const handleSearchSimilar = useCallback(async (category: string | null = null) => {
+  const handleSearchSimilar = useCallback(async (category: string | null = null, brand: string | null = null, color: string | null = null) => {
     if (!pin) return; // Guard clause
+    
+    // Use current state if not provided
+    const brandToUse = brand !== null ? brand : selectedBrand;
+    const colorToUse = color !== null ? color : selectedColor;
     
     setLoading(true);
     setHasSearched(true);
     setSelectedCategory(category);
+    if (brand !== null) setSelectedBrand(brand);
+    if (color !== null) setSelectedColor(color);
+    
     setSimilarProducts([]);
     setGroupedResults({});
     setDetectedBox(null);
@@ -58,6 +67,8 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
           external_image_url: pin.imageUrl,
           query_text: pin.title, 
           category: category,
+          brand: brandToUse,
+          color: colorToUse,
           top_k: 6
         }),
       });
@@ -105,6 +116,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
       setDetectedBox(null);
       setHasSearched(false);
       setSelectedCategory(null);
+      setSelectedBrand('All');
       setLoading(false);
     }
   }, [pin?.id]);
@@ -139,9 +151,11 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
     { id: 'footwear', label: 'Shoes' },
     { id: 'outerwear', label: 'Jackets' },
     { id: 'bags', label: 'Purse' },
-    { id: 'bottles', label: 'Stanley Jugs' },
     { id: 'accessories', label: 'Accessories' },
   ];
+
+  const brands = ['All', 'Nike', 'Adidas', 'Zara', 'H&M', 'Gucci', 'Prada', 'Balenciaga', 'Valentino', 'Saint Laurent'];
+  const colors = ['All', 'Black', 'White', 'Blue', 'Red', 'Green', 'Yellow', 'Pink', 'Purple', 'Grey', 'Beige', 'Multi'];
 
   return (
     <div 
@@ -218,12 +232,42 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
                   <ShoppingBag className="w-5 h-5" />
                   Shop the Vibe
                 </h3>
+                {/* Filters Container */}
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+                  {/* Brand Selector */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-500">Brand:</span>
+                    <select 
+                      value={selectedBrand}
+                      onChange={(e) => handleSearchSimilar(selectedCategory, e.target.value, selectedColor)}
+                      className="bg-gray-100 border-none rounded-lg px-3 py-1 text-sm font-medium focus:ring-2 focus:ring-black"
+                    >
+                      {brands.map(brand => (
+                        <option key={brand} value={brand}>{brand}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Color Selector */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-500">Color:</span>
+                    <select 
+                      value={selectedColor}
+                      onChange={(e) => handleSearchSimilar(selectedCategory, selectedBrand, e.target.value)}
+                      className="bg-gray-100 border-none rounded-lg px-3 py-1 text-sm font-medium focus:ring-2 focus:ring-black"
+                    >
+                      {colors.map(color => (
+                        <option key={color} value={color}>{color}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
               {/* Category Chips (Optional Filter) */}
               <div className="flex flex-wrap gap-2 mb-6">
                 <button
-                  onClick={() => handleSearchSimilar(null)}
+                  onClick={() => handleSearchSimilar(null, selectedBrand, selectedColor)}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                     selectedCategory === null 
                       ? 'bg-black text-white' 
@@ -235,7 +279,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
                 {categories.map(cat => (
                   <button
                     key={cat.id}
-                    onClick={() => handleSearchSimilar(cat.id)}
+                    onClick={() => handleSearchSimilar(cat.id, selectedBrand, selectedColor)}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                       selectedCategory === cat.id 
                         ? 'bg-black text-white' 
@@ -249,7 +293,7 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
 
               <div className="mb-6">
                  <button 
-                  onClick={() => handleSearchSimilar(selectedCategory)}
+                  onClick={() => handleSearchSimilar(selectedCategory, selectedBrand, selectedColor)}
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-2 bg-black text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-gray-800 disabled:opacity-50 transition-all"
                 >

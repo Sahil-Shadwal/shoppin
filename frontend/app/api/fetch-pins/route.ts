@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const DJANGO_BACKEND_URL = process.env.DJANGO_BACKEND_URL || 'http://127.0.0.1:8000';
-const SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89';
+const SCRAPINGBEE_API_KEY = 'DGQAE9RYPCV7J6C2AMGV1H2OBV3BMAJ8P4NKVH6WBVRAF4RIV38BFVN2WKPFTE707RAAE9NX8DWKCPYN';
 
 interface Pin {
   id: string;
@@ -21,21 +21,46 @@ export async function GET(request: NextRequest) {
     // 🔄 If shuffle/More Ideas: ALWAYS scrape fresh content
     if (shuffle) {
       console.log(`🔄 More Ideas clicked - scraping FRESH content for "${query}"`);
-      const scrapedPins = await scrapePinterest(query, true);
       
-      // Store scraped images in background (don't wait)
-      storeInDatabase(scrapedPins, query).catch(err => 
-        console.error('Background storage error:', err)
-      );
+      try {
+        const scrapedPins = await scrapePinterest(query, true);
+        
+        // Store scraped images in background (don't wait)
+        storeInDatabase(scrapedPins, query).catch(err => 
+          console.error('Background storage error:', err)
+        );
 
-      return NextResponse.json({
-        success: true,
-        pins: scrapedPins,
-        total: scrapedPins.length,
-        query: query,
-        shuffled: true,
-        cached: false
-      });
+        return NextResponse.json({
+          success: true,
+          pins: scrapedPins,
+          total: scrapedPins.length,
+          query: query,
+          shuffled: true,
+          cached: false
+        });
+      } catch (scrapeError) {
+        console.warn('Scraping failed, falling back to cached images:', scrapeError);
+        
+        // Fallback: Fetch from database and shuffle
+        const dbPins = await fetchFromDatabase(query, true);
+        
+        if (dbPins.length > 0) {
+          // Shuffle the cached pins to simulate "new" content
+          const shuffledPins = dbPins.sort(() => Math.random() - 0.5);
+          
+          return NextResponse.json({
+            success: true,
+            pins: shuffledPins,
+            total: shuffledPins.length,
+            query: query,
+            shuffled: true,
+            cached: true,
+            warning: 'Scraping unavailable - showing shuffled cached images'
+          });
+        }
+        
+        throw new Error('No cached images available and scraping failed');
+      }
     }
 
     // ⚡ First load: Check DB first for instant load
@@ -54,23 +79,43 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Not enough cached images, scrape fresh content
+    // Not enough cached images, try to scrape fresh content
     console.log(`🔍 Not enough cached images - scraping for "${query}"`);
-    const scrapedPins = await scrapePinterest(query, false);
     
-    // Store scraped images in background (don't wait)
-    storeInDatabase(scrapedPins, query).catch(err => 
-      console.error('Background storage error:', err)
-    );
+    try {
+      const scrapedPins = await scrapePinterest(query, false);
+      
+      // Store scraped images in background (don't wait)
+      storeInDatabase(scrapedPins, query).catch(err => 
+        console.error('Background storage error:', err)
+      );
 
-    return NextResponse.json({
-      success: true,
-      pins: scrapedPins,
-      total: scrapedPins.length,
-      query: query,
-      shuffled: shuffle,
-      cached: false
-    });
+      return NextResponse.json({
+        success: true,
+        pins: scrapedPins,
+        total: scrapedPins.length,
+        query: query,
+        shuffled: shuffle,
+        cached: false
+      });
+    } catch (scrapeError) {
+      console.warn('Scraping failed, using available cached images:', scrapeError);
+      
+      // Fallback: Return whatever we have in cache
+      if (dbPins.length > 0) {
+        return NextResponse.json({
+          success: true,
+          pins: dbPins,
+          total: dbPins.length,
+          query: query,
+          shuffled: false,
+          cached: true,
+          warning: 'Scraping unavailable - showing cached images'
+        });
+      }
+      
+      throw new Error('No cached images available and scraping failed');
+    }
 
   } catch (error) {
     console.error('Fetch error:', error);
