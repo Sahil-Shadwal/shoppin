@@ -46,8 +46,8 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
     setDetectedBox(null);
     
     try {
-      // Always use "Shop the Look" endpoint to get detection boxes
-      const endpoint = 'http://127.0.0.1:8000/api/search/shop-the-look/';
+      // Use Next.js API route as proxy
+      const endpoint = '/api/shop-the-look';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -138,6 +138,8 @@ export default function PinModal({ pin, onClose }: PinModalProps) {
     { id: 'bottoms', label: 'Bottoms' },
     { id: 'footwear', label: 'Shoes' },
     { id: 'outerwear', label: 'Jackets' },
+    { id: 'bags', label: 'Purse' },
+    { id: 'bottles', label: 'Stanley Jugs' },
     { id: 'accessories', label: 'Accessories' },
   ];
 

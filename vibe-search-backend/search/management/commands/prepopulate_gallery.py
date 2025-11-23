@@ -8,15 +8,28 @@ from search.ml_service import ml_service
 class Command(BaseCommand):
     help = 'Pre-populate gallery with images from Pinterest for multiple categories'
 
-    CATEGORIES = [
-        'fashion',
-        'fashion model',
-        'street style',
-        'outfit ideas',
-        'celebrity style',
-        'runway looks',
-        'wardrobe essentials',
-        'minimalist fashion'
+    terms = [
+        'Minimal Streetwear',
+        "Men's Streetwear Outfit Ideas",
+        'Streetwear Outfit Ideas',
+        'Streetwear Fashion Instagram',
+        'Luxury Fashion – Roxx Inspire',
+        'Luxury Classy Outfits',
+        'Luxury Streetwear Brands',
+        '@minimalstreetstyle',
+        '@outfitgrid',
+        '@outfitpage',
+        '@mensfashionpost',
+        '@stadiumgoods',
+        '@flightclub',
+        '@hodinkee',
+        '@wristcheck',
+        '@purseblog',
+        '@sunglasshut',
+        '@rayban',
+        '@prada',
+        '@cartier',
+        '@thesolesupplier'
     ]
 
     SCRAPINGBEE_API_KEY = 'LO2AZHTXFTWM383O0SHXU9EGZG86OZFGI6RIMLRPFXM4I7W0AKQKWK2ASO0CC3IPYJH7W607060YPW89'

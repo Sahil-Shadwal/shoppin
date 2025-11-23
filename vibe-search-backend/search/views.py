@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from django.db.models import F
 from pgvector.django import CosineDistance
@@ -18,8 +19,9 @@ from .serializers import (
 )
 from .ml_service import ml_service
 
-# Global YOLO model (load once)
+# Global YOLO models (load once)
 yolo = YOLO('yolov8n-pose.pt')  # using the pose model
+yolo_obj = YOLO('yolov8n.pt')   # using the object detection model
 
 # Helper to download image to a temporary file
 def download_image(url: str) -> str:
@@ -145,193 +147,252 @@ def shop_the_look(request):
         print(f"Downloading image: {image_url}")
         local_path = download_image(image_url)
         
-        # 2️⃣ Run YOLO detection to find person
-        print("Running YOLO-Pose detection...")
-        results = yolo.predict(source=local_path, conf=0.25, verbose=False)[0]
-        detections = results.boxes
-        keypoints = results.keypoints
-        
-        # Find the person with highest confidence
-        person_idx = -1
-        max_conf = 0
-        
-        for i, det in enumerate(detections):
-            class_id = int(det.cls)
-            class_name = yolo.names[class_id]
-            conf = float(det.conf)
-            
-            if class_name == 'person' and conf > max_conf:
-                max_conf = conf
-                person_idx = i
+        # Extract category EARLY to use for cropping
+        requested_category = request.data.get('category')
+        print(f"Requested category for cropping: {requested_category}") # DEBUG
         
         # 3️⃣ Generate query embedding
         query_embedding = None
         detected_box = None  # To store normalized coordinates [x1, y1, x2, y2]
         
-        # Extract category EARLY to use for cropping
-        requested_category = request.data.get('category')
-        print(f"Requested category for cropping: {requested_category}") # DEBUG
+        img = Image.open(local_path)
+        img_width, img_height = img.size
 
-        if person_idx != -1:
-            # Get person box and keypoints
-            person_box = detections[person_idx]
-            kpts = keypoints[person_idx].xy[0].cpu().numpy() # (17, 2) array of x,y
+        # Handle Object Detection Categories (Bags, Bottles)
+        if requested_category in ['bags', 'bottles']:
+            print(f"Running YOLO Object Detection for {requested_category}...")
+            results_obj = yolo_obj.predict(source=local_path, conf=0.15, verbose=False)[0]
+            detections_obj = results_obj.boxes
             
-            print(f"Found person with confidence {max_conf:.2f}")
-            x1, y1, x2, y2 = map(int, person_box.xyxy[0].tolist())
-            img = Image.open(local_path)
-            img_width, img_height = img.size
+            target_classes = []
+            if requested_category == 'bags':
+                target_classes = [24, 26, 28] # backpack, handbag, suitcase
+            elif requested_category == 'bottles':
+                target_classes = [39] # bottle
             
-            # Keypoint indices for COCO format:
-            # 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear
-            # 5: left_shoulder, 6: right_shoulder, 7: left_elbow, 8: right_elbow
-            # 9: left_wrist, 10: right_wrist, 11: left_hip, 12: right_hip
-            # 13: left_knee, 14: right_knee, 15: left_ankle, 16: right_ankle
+            best_obj_box = None
+            max_conf = 0
             
-            crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
+            for det in detections_obj:
+                cls_id = int(det.cls)
+                conf = float(det.conf)
+                if cls_id in target_classes and conf > max_conf:
+                    max_conf = conf
+                    best_obj_box = det
             
-            # Helper to get bounding box of specific keypoints
-            def get_kpt_box(indices, padding=0.1):
-                valid_kpts = [kpts[i] for i in indices if kpts[i][0] > 0 and kpts[i][1] > 0]
-                if not valid_kpts:
-                    return None
+            if best_obj_box:
+                print(f"Found {requested_category} with confidence {max_conf:.2f}")
+                x1, y1, x2, y2 = map(int, best_obj_box.xyxy[0].tolist())
                 
-                kx = [k[0] for k in valid_kpts]
-                ky = [k[1] for k in valid_kpts]
+                # Add padding
+                w = x2 - x1
+                h = y2 - y1
+                pad_x = w * 0.1
+                pad_y = h * 0.1
                 
-                min_x, max_x = min(kx), max(kx)
-                min_y, max_y = min(ky), max(ky)
+                crop_x1 = max(0, int(x1 - pad_x))
+                crop_y1 = max(0, int(y1 - pad_y))
+                crop_x2 = min(img_width, int(x2 + pad_x))
+                crop_y2 = min(img_height, int(y2 + pad_y))
                 
-                w = max_x - min_x
-                h = max_y - min_y
+                detected_box = [
+                    crop_x1 / img_width,
+                    crop_y1 / img_height,
+                    crop_x2 / img_width,
+                    crop_y2 / img_height
+                ]
                 
-                pad_x = w * padding
-                pad_y = h * padding
+                obj_region = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
                 
-                return (
-                    max(0, int(min_x - pad_x)),
-                    max(0, int(min_y - pad_y)),
-                    min(img_width, int(max_x + pad_x)),
-                    min(img_height, int(max_y + pad_y))
-                )
+                # Save cropped region
+                fd, region_path = tempfile.mkstemp(suffix='.jpg')
+                os.close(fd)
+                obj_region.save(region_path)
+                
+                query_embedding = ml_service.generate_image_embedding(region_path)
+                os.unlink(region_path)
+            else:
+                print(f"No {requested_category} detected, falling back to full image")
+                query_embedding = ml_service.generate_image_embedding(image_url)
 
-            if requested_category == 'tops':
-                # Shoulders to Hips
-                box = get_kpt_box([5, 6, 11, 12], padding=0.2)
-                if box:
-                    crop_x1, crop_y1, crop_x2, crop_y2 = box
-                    print("Applied 'tops' crop (Shoulders to Hips)")
-                else:
-                    # Fallback
-                    p_height = y2 - y1
-                    crop_y2 = y1 + int(p_height * 0.6)
-                    print("Fallback: 'tops' crop (Top 60%)")
-                    
-            elif requested_category == 'bottoms':
-                # Hips to Ankles
-                box = get_kpt_box([11, 12, 15, 16], padding=0.1)
-                if box:
-                    crop_x1, crop_y1, crop_x2, crop_y2 = box
-                    print("Applied 'bottoms' crop (Hips to Ankles)")
-                else:
-                    # Fallback
-                    p_height = y2 - y1
-                    crop_y1 = y1 + int(p_height * 0.4)
-                    print("Fallback: 'bottoms' crop (Bottom 60%)")
-                    
-            elif requested_category == 'footwear':
-                # Ankles only, sized relative to person width
-                valid_ankles = [kpts[i] for i in [15, 16] if kpts[i][0] > 0 and kpts[i][1] > 0]
-                box = None
+        else:
+            # Handle Person/Pose Categories
+            print("Running YOLO-Pose detection...")
+            results = yolo.predict(source=local_path, conf=0.25, verbose=False)[0]
+            detections = results.boxes
+            keypoints = results.keypoints
+            
+            # Find the person with highest confidence
+            person_idx = -1
+            max_conf = 0
+            
+            for i, det in enumerate(detections):
+                class_id = int(det.cls)
+                class_name = yolo.names[class_id]
+                conf = float(det.conf)
                 
-                if valid_ankles:
-                    kx = [k[0] for k in valid_ankles]
-                    ky = [k[1] for k in valid_ankles]
+                if class_name == 'person' and conf > max_conf:
+                    max_conf = conf
+                    person_idx = i
+            
+            if person_idx != -1:
+                # Get person box and keypoints
+                person_box = detections[person_idx]
+                kpts = keypoints[person_idx].xy[0].cpu().numpy() # (17, 2) array of x,y
+                
+                print(f"Found person with confidence {max_conf:.2f}")
+                x1, y1, x2, y2 = map(int, person_box.xyxy[0].tolist())
+                
+                # Keypoint indices for COCO format:
+                # 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear
+                # 5: left_shoulder, 6: right_shoulder, 7: left_elbow, 8: right_elbow
+                # 9: left_wrist, 10: right_wrist, 11: left_hip, 12: right_hip
+                # 13: left_knee, 14: right_knee, 15: left_ankle, 16: right_ankle
+                
+                crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
+                
+                # Helper to get bounding box of specific keypoints
+                def get_kpt_box(indices, padding=0.1):
+                    valid_kpts = [kpts[i] for i in indices if kpts[i][0] > 0 and kpts[i][1] > 0]
+                    if not valid_kpts:
+                        return None
                     
-                    # Center of ankles
-                    cx = sum(kx) / len(kx)
-                    cy = sum(ky) / len(ky)
+                    kx = [k[0] for k in valid_kpts]
+                    ky = [k[1] for k in valid_kpts]
                     
-                    # Person width context
-                    p_w = x2 - x1
+                    min_x, max_x = min(kx), max(kx)
+                    min_y, max_y = min(ky), max(ky)
                     
-                    # Target crop size
-                    target_w = max(max(kx) - min(kx), p_w * 0.5)
-                    target_h = max(max(ky) - min(ky), p_w * 0.4)
+                    w = max_x - min_x
+                    h = max_y - min_y
                     
-                    # Define box centered on ankles, but shifted down slightly
-                    half_w = target_w / 2
+                    pad_x = w * padding
+                    pad_y = h * padding
                     
-                    # Top: 20% of height above center, Bottom: 80% below
-                    # Actually, let's just center X, and put Y mostly below
-                    
-                    box = (
-                        max(0, int(cx - half_w)),
-                        max(0, int(cy - target_h * 0.3)), # 30% up
-                        min(img_width, int(cx + half_w)),
-                        min(img_height, int(cy + target_h * 0.9)) # 90% down
+                    return (
+                        max(0, int(min_x - pad_x)),
+                        max(0, int(min_y - pad_y)),
+                        min(img_width, int(max_x + pad_x)),
+                        min(img_height, int(max_y + pad_y))
                     )
-                    print("Applied 'footwear' crop (Ankles relative to person size)")
-                
-                if box:
-                    crop_x1, crop_y1, crop_x2, crop_y2 = box
-                else:
-                    # Fallback to knees if ankles missing
-                    box = get_kpt_box([13, 14], padding=0.4)
+    
+                if requested_category == 'tops':
+                    # Shoulders to Hips
+                    box = get_kpt_box([5, 6, 11, 12], padding=0.2)
                     if box:
                         crop_x1, crop_y1, crop_x2, crop_y2 = box
-                        print("Fallback: 'footwear' crop (Knees)")
+                        print("Applied 'tops' crop (Shoulders to Hips)")
                     else:
                         # Fallback
                         p_height = y2 - y1
-                        crop_y1 = y1 + int(p_height * 0.85)
-                        print("Fallback: 'footwear' crop (Bottom 15%)")
-            
-            elif requested_category == 'outerwear':
-                # Shoulders to Knees
-                box = get_kpt_box([5, 6, 13, 14], padding=0.15)
-                if box:
-                    crop_x1, crop_y1, crop_x2, crop_y2 = box
-                    print("Applied 'outerwear' crop (Shoulders to Knees)")
-                else:
-                    # Fallback
-                    p_height = y2 - y1
-                    crop_y2 = y1 + int(p_height * 0.75)
-                    print("Fallback: 'outerwear' crop (Top 75%)")
-            
-            # Ensure coordinates are within image bounds and valid
-            crop_x1 = max(0, int(crop_x1))
-            crop_y1 = max(0, int(crop_y1))
-            crop_x2 = min(img_width, int(crop_x2))
-            crop_y2 = min(img_height, int(crop_y2))
-            
-            # Safety check: if crop is too small or invalid, revert to full person
-            if crop_x2 <= crop_x1 + 10 or crop_y2 <= crop_y1 + 10:
-                print("Warning: Invalid crop dimensions, reverting to full person")
-                crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
-
-            # Calculate normalized coordinates for frontend using the SPECIFIC CROP
-            detected_box = [
-                crop_x1 / img_width,
-                crop_y1 / img_height,
-                crop_x2 / img_width,
-                crop_y2 / img_height
-            ]
-            
-            person_region = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
-            
-            # Save cropped region
-            fd, region_path = tempfile.mkstemp(suffix='.jpg')
-            os.close(fd)
-            person_region.save(region_path)
-            
-            # Generate embedding from cropped person
-            query_embedding = ml_service.generate_image_embedding(region_path)
-            os.unlink(region_path)  # Clean up temp file
-        else:
-            # No person detected, use full image
-            print("No person detected, using full image")
-            query_embedding = ml_service.generate_image_embedding(image_url)
+                        crop_y2 = y1 + int(p_height * 0.6)
+                        print("Fallback: 'tops' crop (Top 60%)")
+                        
+                elif requested_category == 'bottoms':
+                    # Hips to Ankles
+                    box = get_kpt_box([11, 12, 15, 16], padding=0.1)
+                    if box:
+                        crop_x1, crop_y1, crop_x2, crop_y2 = box
+                        print("Applied 'bottoms' crop (Hips to Ankles)")
+                    else:
+                        # Fallback
+                        p_height = y2 - y1
+                        crop_y1 = y1 + int(p_height * 0.4)
+                        print("Fallback: 'bottoms' crop (Bottom 60%)")
+                        
+                elif requested_category == 'footwear':
+                    # Ankles only, sized relative to person width
+                    valid_ankles = [kpts[i] for i in [15, 16] if kpts[i][0] > 0 and kpts[i][1] > 0]
+                    box = None
+                    
+                    if valid_ankles:
+                        kx = [k[0] for k in valid_ankles]
+                        ky = [k[1] for k in valid_ankles]
+                        
+                        # Center of ankles
+                        cx = sum(kx) / len(kx)
+                        cy = sum(ky) / len(ky)
+                        
+                        # Person width context
+                        p_w = x2 - x1
+                        
+                        # Target crop size
+                        target_w = max(max(kx) - min(kx), p_w * 0.5)
+                        target_h = max(max(ky) - min(ky), p_w * 0.4)
+                        
+                        # Define box centered on ankles, but shifted down slightly
+                        half_w = target_w / 2
+                        
+                        # Top: 20% of height above center, Bottom: 80% below
+                        # Actually, let's just center X, and put Y mostly below
+                        
+                        box = (
+                            max(0, int(cx - half_w)),
+                            max(0, int(cy - target_h * 0.3)), # 30% up
+                            min(img_width, int(cx + half_w)),
+                            min(img_height, int(cy + target_h * 0.9)) # 90% down
+                        )
+                        print("Applied 'footwear' crop (Ankles relative to person size)")
+                    
+                    if box:
+                        crop_x1, crop_y1, crop_x2, crop_y2 = box
+                    else:
+                        # Fallback to knees if ankles missing
+                        box = get_kpt_box([13, 14], padding=0.4)
+                        if box:
+                            crop_x1, crop_y1, crop_x2, crop_y2 = box
+                            print("Fallback: 'footwear' crop (Knees)")
+                        else:
+                            # Fallback
+                            p_height = y2 - y1
+                            crop_y1 = y1 + int(p_height * 0.85)
+                            print("Fallback: 'footwear' crop (Bottom 15%)")
+                
+                elif requested_category == 'outerwear':
+                    # Shoulders to Knees
+                    box = get_kpt_box([5, 6, 13, 14], padding=0.15)
+                    if box:
+                        crop_x1, crop_y1, crop_x2, crop_y2 = box
+                        print("Applied 'outerwear' crop (Shoulders to Knees)")
+                    else:
+                        # Fallback
+                        p_height = y2 - y1
+                        crop_y2 = y1 + int(p_height * 0.75)
+                        print("Fallback: 'outerwear' crop (Top 75%)")
+                
+                # Ensure coordinates are within image bounds and valid
+                crop_x1 = max(0, int(crop_x1))
+                crop_y1 = max(0, int(crop_y1))
+                crop_x2 = min(img_width, int(crop_x2))
+                crop_y2 = min(img_height, int(crop_y2))
+                
+                # Safety check: if crop is too small or invalid, revert to full person
+                if crop_x2 <= crop_x1 + 10 or crop_y2 <= crop_y1 + 10:
+                    print("Warning: Invalid crop dimensions, reverting to full person")
+                    crop_x1, crop_y1, crop_x2, crop_y2 = x1, y1, x2, y2
+    
+                # Calculate normalized coordinates for frontend using the SPECIFIC CROP
+                detected_box = [
+                    crop_x1 / img_width,
+                    crop_y1 / img_height,
+                    crop_x2 / img_width,
+                    crop_y2 / img_height
+                ]
+                
+                person_region = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+                
+                # Save cropped region
+                fd, region_path = tempfile.mkstemp(suffix='.jpg')
+                os.close(fd)
+                person_region.save(region_path)
+                
+                # Generate embedding from cropped person
+                query_embedding = ml_service.generate_image_embedding(region_path)
+                os.unlink(region_path)  # Clean up temp file
+            else:
+                # No person detected, use full image
+                print("No person detected, using full image")
+                query_embedding = ml_service.generate_image_embedding(image_url)
         
         # Clean up downloaded image
         os.unlink(local_path)
@@ -411,20 +472,42 @@ def shop_the_look(request):
 
 
 @api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
 def search_by_image(request):
     """
     Visual search endpoint - receives image URL, returns similar products.
     Uses CLIP embeddings and vector similarity search.
+    Supports:
+    - max_price: Filter items below a certain price
+    - negative_query: Penalize items matching this text description
     """
     image_url = request.data.get('external_image_url')
+    image_file = request.FILES.get('image')
     top_k = int(request.data.get('top_k', 10))
+    max_price = request.data.get('max_price')
+    negative_query = request.data.get('negative_query')
     
-    if not image_url:
-        return Response({'error': 'external_image_url is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not image_url and not image_file:
+        return Response({'error': 'external_image_url or image file is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     # 1. Generate embedding for query image
-    print(f"Generating embedding for: {image_url}")
-    query_embedding = ml_service.generate_image_embedding(image_url)
+    query_embedding = None
+    
+    if image_file:
+        print(f"Processing uploaded image: {image_file.name}")
+        # Save to temp file
+        fd, path = tempfile.mkstemp(suffix='.jpg')
+        with os.fdopen(fd, 'wb') as out:
+            for chunk in image_file.chunks():
+                out.write(chunk)
+        
+        # Generate embedding
+        query_embedding = ml_service.generate_image_embedding(path)
+        os.unlink(path) # Cleanup
+    elif image_url:
+        print(f"Generating embedding for: {image_url}")
+        query_embedding = ml_service.generate_image_embedding(image_url)
+        
     if not query_embedding:
         print("Failed to generate embedding")
         return Response({'error': 'Failed to generate embedding for image'}, status=status.HTTP_400_BAD_REQUEST)
@@ -438,12 +521,29 @@ def search_by_image(request):
         print(f"Generating text embedding for: {query_text}")
         text_embedding = ml_service.generate_text_embedding(query_text)
 
+    # Generate negative embedding if provided
+    negative_embedding = None
+    if negative_query:
+        print(f"Generating negative embedding for: {negative_query}")
+        negative_embedding = ml_service.generate_text_embedding(negative_query)
+
     # Check for category filter
     category = request.data.get('category')
     queryset = Product.objects.all()
+    
     if category:
         print(f"Filtering by category: {category}")
         queryset = queryset.filter(category=category)
+        
+    if max_price:
+        try:
+            price_limit = float(max_price)
+            print(f"Filtering by max_price: {price_limit}")
+            # Assuming price is stored as float or decimal. If string, might need casting.
+            # For now assuming simple filter works.
+            queryset = queryset.filter(price__lte=price_limit)
+        except ValueError:
+            print("Invalid max_price provided")
 
     # 2. Search in Products table
     if text_embedding:
@@ -452,31 +552,65 @@ def search_by_image(request):
         matches = queryset.annotate(
             visual_dist=CosineDistance('visual_embedding', query_embedding),
             text_dist=CosineDistance('text_embedding', text_embedding)
-        ).annotate(
-            # Weighted average: 60% visual, 40% text
-            # Note: CosineDistance is 0 for identical, 1 for orthogonal. Lower is better.
-            combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4)
-        ).order_by('combined_dist')[:top_k]
+        )
+        
+        if negative_embedding:
+             matches = matches.annotate(
+                neg_dist=CosineDistance('text_embedding', negative_embedding)
+            ).annotate(
+                # Combined: Visual(60%) + Text(40%) + Penalty for closeness to negative
+                # If neg_dist is small (close to negative), we want to INCREASE the final distance/reduce score.
+                # CosineDistance is [0, 2]. 0 = same, 1 = orthogonal, 2 = opposite.
+                # So if neg_dist is small, it's bad.
+                # Let's add (1 - neg_dist) * weight to the distance? 
+                # Or just subtract neg_dist from score?
+                # Simpler: combined_dist - (neg_dist * 0.5) -> No, we sort by distance (asc).
+                # So we want to INCREASE distance if it matches negative.
+                # Distance += (1 - neg_dist) if neg_dist < 1 else 0
+                # Let's try a simple weighted sum where negative similarity adds to distance.
+                # Similarity = 1 - distance.
+                # We want to minimize: Distance(Query) - Weight * Distance(Negative) ? No.
+                # We want to maximize: Sim(Query) - Sim(Negative)
+                # => Minimize: (1 - Sim(Query)) + Sim(Negative)
+                # => Minimize: Dist(Query) + (1 - Dist(Negative))
+                combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4) + (1.0 - F('neg_dist')) * 0.5
+            )
+        else:
+            matches = matches.annotate(
+                combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4)
+            )
+            
+        matches = matches.order_by('combined_dist')[:top_k]
     else:
         # Visual Only
         print("Performing Visual Only Search")
         matches = queryset.annotate(
             distance=CosineDistance('visual_embedding', query_embedding)
-        ).order_by('distance')[:top_k]
+        )
+        
+        if negative_embedding:
+            matches = matches.annotate(
+                neg_dist=CosineDistance('text_embedding', negative_embedding)
+            ).annotate(
+                # Penalize visual matches that are semantically close to negative query
+                final_dist=F('distance') + (1.0 - F('neg_dist')) * 0.5
+            ).order_by('final_dist')[:top_k]
+        else:
+            matches = matches.order_by('distance')[:top_k]
     
     print(f"Found {len(matches)} matches")
-    for m in matches:
-        dist = getattr(m, 'combined_dist', getattr(m, 'distance', 0))
-        print(f"Match: {m.title} - Distance: {dist}")
-
-    # 3. Serialize results
     results = []
     for product in matches:
         # Determine which distance to use for score
-        if hasattr(product, 'combined_dist'):
-            score = 1 - product.combined_dist
+        if hasattr(product, 'final_dist'):
+             dist = product.final_dist
+        elif hasattr(product, 'combined_dist'):
+            dist = product.combined_dist
         else:
-            score = 1 - product.distance if product.distance is not None else 0
+            dist = product.distance if product.distance is not None else 0
+            
+        # Normalize score roughly
+        score = max(0, 1 - dist)
 
         results.append({
             "product_id": product.product_id,
@@ -500,9 +634,14 @@ def search_by_text(request):
     """
     Text search endpoint - receives text query, returns matching products.
     Uses Sentence-Transformer embeddings and vector similarity search.
+    Supports:
+    - max_price
+    - negative_query
     """
     query = request.data.get('query')
     top_k = int(request.data.get('top_k', 10))
+    max_price = request.data.get('max_price')
+    negative_query = request.data.get('negative_query')
     
     if not query:
         return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -512,20 +651,45 @@ def search_by_text(request):
     if not query_embedding:
         return Response({'error': 'Failed to generate embedding for text'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Generate negative embedding
+    negative_embedding = None
+    if negative_query:
+        negative_embedding = ml_service.generate_text_embedding(negative_query)
+
+    queryset = Product.objects.all()
+    
+    if max_price:
+        try:
+            price_limit = float(max_price)
+            queryset = queryset.filter(price__lte=price_limit)
+        except ValueError:
+            pass
+
     # 2. Search in Products table using Cosine Distance on text_embedding
-    matches = Product.objects.annotate(
+    matches = queryset.annotate(
         distance=CosineDistance('text_embedding', query_embedding)
-    ).order_by('distance')[:top_k]
+    )
+    
+    if negative_embedding:
+        matches = matches.annotate(
+            neg_dist=CosineDistance('text_embedding', negative_embedding)
+        ).annotate(
+            # Penalize: Distance + SimilarityToNegative
+            final_dist=F('distance') + (1.0 - F('neg_dist')) * 0.6
+        ).order_by('final_dist')[:top_k]
+    else:
+        matches = matches.order_by('distance')[:top_k]
     
     # 3. Serialize results
     results = []
     for product in matches:
+        dist = getattr(product, 'final_dist', getattr(product, 'distance', 0))
         results.append({
             "product_id": product.product_id,
             "title": product.title,
             "image_url": product.image_url,
             "price": product.price,
-            "semantic_score": 1 - product.distance if product.distance is not None else 0,
+            "semantic_score": max(0, 1 - dist),
             "brand": product.brand_name,
             "category": product.category
         })

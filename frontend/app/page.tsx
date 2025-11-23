@@ -19,7 +19,8 @@ export default function Home() {
   const [pins, setPins] = useState<Pin[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
-  const [currentQuery, setCurrentQuery] = useState('fashion');
+  const [currentQuery, setCurrentQuery] = useState('Minimal Streetwear');
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   
   // Client-side cache for instant category switching
   const pinsCache = useRef<Record<string, Pin[]>>({});
@@ -30,6 +31,7 @@ export default function Home() {
       console.log('⚡ Loaded from CLIENT CACHE - instant!');
       setPins(pinsCache.current[query]);
       setCurrentQuery(query);
+      setUploadedImage(null); // Clear uploaded image on text search
       return;
     }
     
@@ -43,6 +45,7 @@ export default function Home() {
       if (data.success) {
         setPins(data.pins);
         setCurrentQuery(query);
+        setUploadedImage(null); // Clear uploaded image on text search
         
         // Store in client-side cache for instant re-access
         if (!shuffle) {
@@ -67,6 +70,55 @@ export default function Home() {
     }
   };
 
+  const handleImageSearch = async (file: File) => {
+    setLoading(true);
+    console.log(`📸 Uploading image: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+    
+    try {
+      // Create local preview URL
+      const objectUrl = URL.createObjectURL(file);
+      setUploadedImage(objectUrl);
+      
+      const formData = new FormData();
+      formData.append('image', file);
+
+      console.log('🔄 Sending image to backend...');
+      const response = await fetch('/api/search-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      console.log(`📡 Response status: ${response.status}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Backend error:', errorText);
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📦 Response data:', data);
+
+      if (data.success && data.pins) {
+        setPins(data.pins);
+        setCurrentQuery('Visual Search');
+        console.log(`✅ Found ${data.pins.length} matches for uploaded image`);
+      } else {
+        console.error('❌ Search failed:', data.error || 'Unknown error');
+        // Silently fail - set empty results
+        setPins([]);
+        setCurrentQuery('Visual Search - No Results');
+      }
+    } catch (error) {
+      console.error('💥 Error searching image:', error);
+      // Silently fail - set empty results
+      setPins([]);
+      setCurrentQuery('Visual Search - Error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleShuffle = () => {
     // Fetch fresh pins with same query but shuffled
     fetchPins(currentQuery, true);
@@ -74,7 +126,7 @@ export default function Home() {
 
   // Load initial pins on mount
   useEffect(() => {
-    fetchPins('fashion');
+    fetchPins('Minimal Streetwear');
   }, []);
 
   return (
@@ -94,7 +146,11 @@ export default function Home() {
             </div>
           </div>
           
-          <SearchBar onSearch={(q) => fetchPins(q, false)} isLoading={loading} />
+          <SearchBar 
+            onSearch={(q) => fetchPins(q, false)} 
+            onImageSearch={handleImageSearch}
+            isLoading={loading} 
+          />
         </div>
       </header>
 
@@ -121,14 +177,29 @@ export default function Home() {
           </div>
         ) : pins.length > 0 ? (
           <>
-            <div className="mb-6 text-center">
-              <h2 className="text-2xl font-bold text-gray-800">
-                {currentQuery.charAt(0).toUpperCase() + currentQuery.slice(1)} Ideas
-              </h2>
-              <p className="text-gray-600 mt-2">
-                {pins.length} pins found
-              </p>
-            </div>
+          <div className="mb-6 text-center">
+            <h2 className="text-2xl font-bold text-gray-800">
+              {currentQuery.charAt(0).toUpperCase() + currentQuery.slice(1)} Ideas
+            </h2>
+            
+            {/* Show uploaded image reference if available */}
+            {currentQuery === 'Visual Search' && uploadedImage && (
+              <div className="mt-4 flex flex-col items-center">
+                <p className="text-sm text-gray-500 mb-2">Based on your upload:</p>
+                <div className="relative w-32 h-32 rounded-xl overflow-hidden shadow-md border-2 border-white">
+                  <img 
+                    src={uploadedImage} 
+                    alt="Uploaded reference" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <p className="text-gray-600 mt-2">
+              {pins.length} pins found
+            </p>
+          </div>
             
             <MasonryGallery 
               pins={pins} 
