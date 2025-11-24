@@ -336,25 +336,104 @@ def shop_the_look(request):
                             min(img_height, int(max_y + pad_y_bottom))
                         )
                         
-                        crop_x1, crop_y1, crop_x2, crop_y2 = box
-                        print(f"✅ IMPROVED footwear crop: Both shoes covered | Box: {box} | Width: {box[2]-box[0]}px, Height: {box[3]-box[1]}px")
+                def apply_category_crop(bbox, category, image_height, image_width):
+                    """
+                    Apply very precise category-specific cropping to detected person bounding box.
+                    Makes boxes much tighter and more accurate for each category.
+                    
+                    Args:
+                        bbox: Original person bounding box [x1, y1, x2, y2]
+                        category: Selected category (shoes, bottoms, tops, etc.)
+                        image_height: Full image height
+                        image_width: Full image width
+                    
+                    Returns:
+                        Cropped bounding box [x1, y1, x2, y2]
+                    """
+                    x1, y1, x2, y2 = bbox
+                    box_height = y2 - y1
+                    box_width = x2 - x1
+                    
+                    # Calculate person segments (more precise)
+                    head_end = y1 + box_height * 0.15      # Top 15% is head
+                    chest_start = y1 + box_height * 0.15   # Chest starts after head
+                    waist = y1 + box_height * 0.45         # Waist at 45% 
+                    hip = y1 + box_height * 0.55           # Hip at 55%
+                    knee = y1 + box_height * 0.75          # Knee at 75%
+                    ankle_start = y1 + box_height * 0.88   # Ankles start at 88%
+                    
+                    if category == 'footwear' or category == 'shoes':
+                        # SHOES: Start from KNEE level to catch bent-knee poses
+                        # Extend much wider to ensure BOTH shoes are captured
+                        cropped_x1 = max(0, x1 - box_width * 0.25)  # Extend 25% left for wide stance
+                        cropped_y1 = max(0, knee)                   # Start at KNEE, not ankle
+                        cropped_x2 = min(image_width, x2 + box_width * 0.25)  # Extend 25% right
+                        cropped_y2 = y2  # Bottom of person
+                        
+                    elif category == 'bottoms':
+                        # BOTTOMS: Waist to ankles (45% to 88% of person height)
+                        # Includes full pants/jeans but excludes shoes
+                        cropped_x1 = max(0, x1 - box_width * 0.1)   # Extend 10% for baggy jeans
+                        cropped_y1 = max(0, waist)                  # Start at waist
+                        cropped_x2 = min(image_width, x2 + box_width * 0.1)  # Extend 10% right
+                        cropped_y2 = min(image_height, ankle_start) # End just before shoes
+                        
+                    elif category == 'tops':
+                        # TOPS: Head to waist (0% to 50% of person height)
+                        # Includes shirts, sweaters, jackets worn on upper body
+                        cropped_x1 = max(0, x1 - box_width * 0.15)  # Extend for sleeves
+                        cropped_y1 = y1                              # Start from top
+                        cropped_x2 = min(image_width, x2 + box_width * 0.15)  # Extend for sleeves
+                        cropped_y2 = min(image_height, hip)         # End at hip
+                        
+                    elif category == 'outerwear' or category == 'jackets':
+                        # OUTERWEAR: Head to hip (0% to 60% of person height)
+                        # Longer than tops to include jacket length
+                        cropped_x1 = max(0, x1 - box_width * 0.2)   # Extend more for oversized
+                        cropped_y1 = y1                              # Start from top
+                        cropped_x2 = min(image_width, x2 + box_width * 0.2)
+                        cropped_y2 = min(image_height, knee)        # End at knee level
+                        
+                    elif category == 'accessories':
+                        # ACCESSORIES: Focus on upper body and head area
+                        cropped_x1 = max(0, x1 - box_width * 0.2)
+                        cropped_y1 = y1                              # Include head
+                        cropped_x2 = min(image_width, x2 + box_width * 0.2)
+                        cropped_y2 = min(image_height, chest_start + box_height * 0.2)
+                        
+                    elif category == 'bags':
+                        # BAGS: Usually carried at hip/shoulder level
+                        cropped_x1 = max(0, x1 - box_width * 0.3)   # Extend to catch bags on sides
+                        cropped_y1 = max(0, chest_start)            # Start at chest
+                        cropped_x2 = min(image_width, x2 + box_width * 0.3)
+                        cropped_y2 = min(image_height, hip + box_height * 0.2)
+                        
                     else:
-                        # Fallback: use bottom 30% of person
-                        p_height = y2 - y1
-                        crop_y1 = y1 + int(p_height * 0.7)
-                        print("⚠️ Fallback: Using bottom 30% of person for footwear")
+                        # DEFAULT: Use full person detection
+                        cropped_x1 = x1
+                        cropped_y1 = y1
+                        cropped_x2 = x2
+                        cropped_y2 = y2
+                    
+                    # Ensure box has minimum size (at least 50 pixels in each dimension)
+                    min_size = 50
+                    if (cropped_x2 - cropped_x1) < min_size:
+                        center_x = (cropped_x1 + cropped_x2) / 2
+                        cropped_x1 = max(0, center_x - min_size / 2)
+                        cropped_x2 = min(image_width, center_x + min_size / 2)
+                    
+                    if (cropped_y2 - cropped_y1) < min_size:
+                        center_y = (cropped_y1 + cropped_y2) / 2
+                        cropped_y1 = max(0, center_y - min_size / 2)
+                        cropped_y2 = min(image_height, center_y + min_size / 2)
+                    
+                    return [int(cropped_x1), int(cropped_y1), int(cropped_x2), int(cropped_y2)]
                 
-                elif requested_category == 'outerwear':
-                    # Shoulders to Knees
-                    box = get_kpt_box([5, 6, 13, 14], padding=0.15)
-                    if box:
-                        crop_x1, crop_y1, crop_x2, crop_y2 = box
-                        print("Applied 'outerwear' crop (Shoulders to Knees)")
-                    else:
-                        # Fallback
-                        p_height = y2 - y1
-                        crop_y2 = y1 + int(p_height * 0.75)
-                        print("Fallback: 'outerwear' crop (Top 75%)")
+                # Apply precise category crop
+                crop_x1, crop_y1, crop_x2, crop_y2 = apply_category_crop(
+                    [x1, y1, x2, y2], requested_category, img_height, img_width
+                )
+                print(f"Applied '{requested_category}' crop: [{crop_x1}, {crop_y1}, {crop_x2}, {crop_y2}]")
                 
                 # Ensure coordinates are within image bounds and valid
                 crop_x1 = max(0, int(crop_x1))
@@ -745,3 +824,133 @@ def search_by_text(request):
         "total_results": len(results)
     })
 
+
+@api_view(['POST'])
+def shop_search(request):
+    """
+    Smart text-based product search endpoint.
+    Uses text embeddings for semantic matching (spell-tolerant).
+    
+    Request body:
+    - query: search text (e.g., "white sneakers", "whte snakers")
+    - category: optional category filter
+    - top_k: number of results (default 50)
+    """
+    query_text = request.data.get('query', '')
+    category = request.data.get('category')
+    top_k = int(request.data.get('top_k', 24))  # Reduced from 50 for faster loading
+    
+    if not query_text:
+        return Response({'error': 'Query text is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    print(f"Shop Search: '{query_text}' | Category: {category}")
+    
+    # Generate text embedding for the search query
+    query_embedding = ml_service.generate_text_embedding(query_text)
+    
+    if not query_embedding:
+        return Response({'error': 'Failed to generate search embedding'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Build queryset
+    queryset = Product.objects.all()
+    
+    if category:
+        queryset = queryset.filter(category__icontains=category)
+    
+    # Search using text embedding similarity
+    matches = queryset.annotate(
+        distance=CosineDistance('text_embedding', query_embedding)
+    ).order_by('distance')[:top_k]
+    
+    # Serialize results
+    results = []
+    for product in matches:
+        results.append({
+            'product_id': product.product_id,
+            'title': product.title,
+            'brand': product.brand_name,
+            'price': float(product.price) if product.price else 0,
+            'category': product.category,
+            'image_url': product.image_url,
+            'pdp_url': product.pdp_url,
+            'similarity_score': 1 - float(product.distance) if hasattr(product, 'distance') else 0
+        })
+    
+    return Response({
+        'success': True,
+        'query': query_text,
+        'total': len(results),
+        'products': results
+    })
+
+
+@api_view(['GET'])
+def get_categories(request):
+    """
+    Get all available product categories with sample images.
+    """
+    try:
+        # Use raw SQL for faster execution
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            # Get one sample product per category with specific brand preferences
+            cursor.execute("""
+                WITH ranked_products AS (
+                    SELECT 
+                        category,
+                        image_url,
+                        title,
+                        brand_name,
+                        CASE 
+                            WHEN category = 'bags' AND brand_name ILIKE '%henny%bear%' THEN 1
+                            WHEN category = 'bottoms' AND brand_name ILIKE '%balenciaga%' THEN 1
+                            ELSE 2
+                        END as priority,
+                        ROW_NUMBER() OVER (PARTITION BY category ORDER BY 
+                            CASE 
+                                WHEN category = 'bags' AND brand_name ILIKE '%henny%bear%' THEN 1
+                                WHEN category = 'bottoms' AND brand_name ILIKE '%balenciaga%' THEN 1
+                                ELSE 2
+                            END,
+                            product_id
+                        ) as rn
+                    FROM products
+                    WHERE category IS NOT NULL 
+                    AND image_url IS NOT NULL
+                )
+                SELECT category, image_url, title
+                FROM ranked_products
+                WHERE rn = 1
+                ORDER BY category
+            """)
+            
+            category_samples = cursor.fetchall()
+            
+        # Build response
+        category_data = []
+        for cat_name, image_url, title in category_samples:
+            # Count products in this category
+            count = Product.objects.filter(category=cat_name).count()
+            
+            category_data.append({
+                'name': cat_name,
+                'display_name': cat_name.title(),
+                'count': count,
+                'sample': {
+                    'image_url': image_url,
+                    'title': title
+                }
+            })
+        
+        return Response({
+            'success': True,
+            'categories': category_data
+        })
+    except Exception as e:
+        print(f"Error in get_categories: {e}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'categories': []
+        })
