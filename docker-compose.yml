@@ -13,6 +13,9 @@ services:
       - ./vibe-search-backend/.env
     environment:
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend,0.0.0.0
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: always
 
   frontend:
