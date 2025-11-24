@@ -4,7 +4,8 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const response = await fetch('http://localhost:8000/api/search/shop-the-look/', {
+    const backendUrl = process.env.DJANGO_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(`${backendUrl}/api/search/shop-the-look/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

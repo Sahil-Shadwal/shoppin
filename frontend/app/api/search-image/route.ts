@@ -33,7 +33,8 @@ export async function POST(request: Request) {
 
     console.log(`Proxying image search to Django: ${imageFile.name}, size: ${imageFile.size}`);
 
-    const response = await fetch('http://127.0.0.1:8000/api/search/image/', {
+    const backendUrl = process.env.DJANGO_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(`${backendUrl}/api/search/image/`, {
       method: 'POST',
       body: backendFormData,
       // Do NOT set Content-Type header, let fetch set it with boundary

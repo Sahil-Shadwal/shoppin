@@ -49,7 +49,8 @@ export default function ShopPage() {
 
       // Fetch fresh data in background
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/shop/categories/');
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const response = await fetch(`${backendUrl}/api/shop/categories/`);
         const data = await response.json();
         if (data.success) {
           setCategories(data.categories);
@@ -73,7 +74,8 @@ export default function ShopPage() {
     setHasSearched(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/shop/search/', {
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+      const response = await fetch(`${backendUrl}/api/shop/search/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,7 +103,8 @@ export default function ShopPage() {
     setHasSearched(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/shop/search/', {
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+      const response = await fetch(`${backendUrl}/api/shop/search/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

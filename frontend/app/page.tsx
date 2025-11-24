@@ -124,7 +124,8 @@ export default function Home() {
   useEffect(() => {
     const prefetchShopCategories = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/shop/categories/');
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const response = await fetch(`${backendUrl}/api/shop/categories/`);
         const data = await response.json();
         if (data.success) {
           localStorage.setItem('shop_categories', JSON.stringify(data.categories));
