@@ -25,13 +25,19 @@ def parse_search_query(query_text):
     User Query: "{query_text}"
     
     Extract the following fields in JSON format:
-    - refined_query: The main visual description of the item (e.g., "white sneakers", "floral dress"). Remove negative terms.
-    - negative_query: Any terms the user explicitly wants to exclude (e.g., "leather", "red").
+    - refined_query: The main visual description of the item WITHOUT any negation words. Extract only the positive attributes.
+    - negative_query: Terms the user wants to EXCLUDE. Look for patterns like "not X", "no X", "without X", "except X".
     - category: One of ['tops', 'bottoms', 'footwear', 'outerwear', 'bags', 'accessories']. Infer from the item type.
-    - color: The primary color if mentioned.
+    - color: The primary color if mentioned (only if it's a POSITIVE attribute, not excluded).
     - max_price: If a price limit is mentioned (e.g., "under $500"), extract the number.
     
-    Return ONLY the JSON object.
+    IMPORTANT EXAMPLES:
+    - "not white Nike Air Force" → refined_query: "Nike Air Force", negative_query: "white", category: "footwear"
+    - "black shoes without leather" → refined_query: "black shoes", negative_query: "leather", category: "footwear"
+    - "red dress no floral" → refined_query: "red dress", negative_query: "floral", category: "tops"
+    - "sneakers not red or blue" → refined_query: "sneakers", negative_query: "red blue", category: "footwear"
+    
+    Return ONLY the JSON object without any markdown formatting.
     """
     
     payload = {
@@ -59,5 +65,30 @@ def parse_search_query(query_text):
         
     except Exception as e:
         print(f"Error calling Gemini: {e}")
-        # Fallback: just use the raw text as the refined query
-        return {"refined_query": query_text}
+        # Fallback: Use regex to extract negations
+        import re
+        
+        negative_terms = []
+        cleaned_query = query_text
+        
+        # Pattern: "not X" or "no X" or "without X" or "except X" (single word only)
+        pattern = r'\b(not|no|without|except)\s+(\w+)\b'
+        matches = list(re.finditer(pattern, cleaned_query, re.IGNORECASE))
+        
+        for match in matches:
+            # Extract the negated term (group 2)
+            neg_term = match.group(2)
+            negative_terms.append(neg_term)
+            # Remove the entire negation phrase from the query
+            cleaned_query = cleaned_query.replace(match.group(0), '', 1).strip()
+        
+        # Clean up extra spaces
+        cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
+        
+        result = {
+            "refined_query": cleaned_query if cleaned_query else query_text,
+            "negative_query": ' '.join(negative_terms) if negative_terms else None
+        }
+        
+        print(f"Fallback Parsed: refined='{result['refined_query']}', negative='{result.get('negative_query')}'")
+        return result
