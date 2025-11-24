@@ -2,7 +2,7 @@
 
 **Shoppin** is an AI-powered fashion discovery platform that transforms visual inspiration into shoppable products. It combines the browsing experience of Pinterest with intelligent, computer-vision-powered product matching.
 
-![Shoppin Homepage Placeholder](<!-- Add Homepage Screenshot Here -->)
+<img width="1469" height="801" alt="Screenshot 2025-11-24 at 4 06 17 PM" src="https://github.com/user-attachments/assets/e4c75255-3884-4925-967b-31aa2cc2128d" />
 
 ---
 
@@ -28,33 +28,16 @@ Traditional search engines fail here because fashion is visual. Describing a spe
 
 **Shoppin solves this using AI.** We use computer vision to "see" the outfit, understand the style, and instantly find similar products you can actually buy.
 
----
 
-## 🏗️ Architecture
-
-Shoppin uses a modern split-stack architecture designed for performance and scalability.
-
-![Architecture Diagram Placeholder](<!-- Add Architecture Diagram Here -->)
-
-### **Frontend (Next.js + TypeScript)**
-- **Framework**: Next.js 14 (App Router)
-- **Styling**: Tailwind CSS
-- **Performance**: Dual-layer caching (LocalStorage + In-memory) for instant navigation.
-
-### **Backend (Django + Python)**
-- **API**: Django REST Framework
-- **AI/ML**: PyTorch, Ultralytics (YOLO), Sentence-Transformers
-- **Database**: PostgreSQL with **pgvector** extension for vector similarity search.
-
----
 
 ## ✨ Key Features & How They Work
 
 ### 1. Shop the Look (YOLOv8 + Intelligent Cropping)
 
 Click on any outfit, and Shoppin identifies the individual items (shoes, tops, pants) and finds matches.
+<img width="1463" height="786" alt="Screenshot 2025-11-24 at 4 09 39 PM" src="https://github.com/user-attachments/assets/b735f044-74e2-479c-8cee-81a60d450d99" />
 
-![Shop the Look Demo Placeholder](<!-- Add Shop the Look Screenshot Here -->)
+
 
 **How it works:**
 1. **Detection**: We use **YOLOv8-Pose** to detect the person and 17 body keypoints (shoulders, knees, ankles, etc.).
@@ -65,30 +48,21 @@ Click on any outfit, and Shoppin identifies the individual items (shoes, tops, p
 
 Upload any image to find visually similar products. You can refine results with text ("no leather") or price filters.
 
-![Visual Search Demo Placeholder](<!-- Add Visual Search Screenshot Here -->)
+<img width="1469" height="802" alt="Screenshot 2025-11-24 at 4 10 36 PM" src="https://github.com/user-attachments/assets/3ff551f5-27e6-4d04-9ede-41aed4618dbb" />
+
 
 **The Tech Stack:**
 - **CLIP Model**: Converts images into 512-dimensional vector embeddings.
 - **pgvector**: Performs cosine similarity search in PostgreSQL to find the closest visual matches in milliseconds.
 - **Hybrid Search**: Combines visual embeddings with text embeddings for refined queries.
 
-### 3. Smart Caching ("More Ideas")
 
-We scrape fresh inspiration from Pinterest while keeping costs low and performance high.
-
-![Gallery/Caching Demo Placeholder](<!-- Add Gallery Screenshot Here -->)
-
-**Optimization Strategy:**
-- **Layer 1**: Client-side cache (Instant load for visited categories).
-- **Layer 2**: Database cache (Fast retrieval of previously scraped items).
-- **Layer 3**: Fresh Scraping (Only triggers when you click "Shuffle/More Ideas").
-- **Result**: 90% reduction in scraping costs + instant UI interactions.
-
-### 4. Semantic Shop Search (Spell Tolerant)
+### 3. Semantic Shop Search (Spell Tolerant)
 
 Search for products using natural language, even with typos or slang.
 
-![Shop Search Demo Placeholder](<!-- Add Shop Search Screenshot Here -->)
+<img width="1468" height="795" alt="Screenshot 2025-11-24 at 4 11 40 PM" src="https://github.com/user-attachments/assets/98d096cb-2623-4326-b272-893892bac8f6" />
+
 
 **Example:**
 - Query: *"micheal baskelball shoes"* (Typos included)
@@ -111,11 +85,10 @@ Search for products using natural language, even with typos or slang.
 
 ---
 
-## 📸 Screen Recordings / Demos
+## 📸 Screen Performance 
 
-<!-- Add links to video demos or GIFs here -->
+![Uploading Screenshot 2025-11-24 at 4.12.42 PM.png…]()
 
----
 
 ## 📝 License
 
