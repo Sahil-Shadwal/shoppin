@@ -5,6 +5,7 @@ import MasonryGallery from './components/MasonryGallery';
 import SearchBar from './components/SearchBar';
 import PinModal from './components/PinModal';
 import ShuffleButton from './components/ShuffleButton';
+import Link from 'next/link';
 
 interface Pin {
   id: string;
@@ -19,35 +20,55 @@ export default function Home() {
   const [pins, setPins] = useState<Pin[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
-  const [currentQuery, setCurrentQuery] = useState('fashion');
+  const [currentQuery, setCurrentQuery] = useState('Minimal Streetwear');
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   
   // Client-side cache for instant category switching
   const pinsCache = useRef<Record<string, Pin[]>>({});
 
-  const fetchPins = async (query: string, shuffle: boolean = false) => {
-    // Check client-side cache first (unless shuffling)
-    if (!shuffle && pinsCache.current[query]) {
-      console.log('⚡ Loaded from CLIENT CACHE - instant!');
-      setPins(pinsCache.current[query]);
-      setCurrentQuery(query);
-      return;
+  const fetchPins = async (query: string, forceFresh: boolean = false) => {
+    // Check client-side cache first (unless forcing fresh)
+    const cacheKey = `gallery_pins_${query}`;
+    
+    if (!forceFresh) {
+      // Try localStorage cache first
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const cachedData = JSON.parse(cached);
+          setPins(cachedData);
+          setCurrentQuery(query);
+          setUploadedImage(null);
+          console.log('✅ Loaded gallery from cache - instant!');
+          return;
+        } catch (e) {
+          console.error('Failed to parse cached pins');
+        }
+      }
+      
+      // Try client-side cache
+      if (pinsCache.current[query]) {
+        console.log('⚡ Loaded from CLIENT CACHE - instant!');
+        setPins(pinsCache.current[query]);
+        setCurrentQuery(query);
+        setUploadedImage(null);
+        return;
+      }
     }
     
     setLoading(true);
     try {
-      const shuffleParam = shuffle ? '&shuffle=true' : '';
-      // Use optimized route that checks DB first
-      const response = await fetch(`/api/fetch-pins?query=${encodeURIComponent(query)}${shuffleParam}`);
+      const response = await fetch(`/api/fetch-pins?query=${encodeURIComponent(query)}&forceFresh=${forceFresh}`);
       const data = await response.json();
-      
-      if (data.success) {
+
+      if (data.success && data.pins) {
         setPins(data.pins);
         setCurrentQuery(query);
+        setUploadedImage(null);
         
-        // Store in client-side cache for instant re-access
-        if (!shuffle) {
-          pinsCache.current[query] = data.pins;
-        }
+        // Cache the results
+        localStorage.setItem(cacheKey, JSON.stringify(data.pins));
+        pinsCache.current[query] = data.pins;
         
         // Log if we're using cached data
         if (data.cached) {
@@ -57,25 +78,108 @@ export default function Home() {
         }
       } else {
         console.error('Failed to fetch pins:', data.error);
-        alert('Failed to load pins. Please try again.');
       }
     } catch (error) {
       console.error('Error fetching pins:', error);
-      alert('Error loading pins. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSearch = (query: string) => {
+    // Add to browser history so back button works
+    window.history.pushState({ query }, '', `/?q=${encodeURIComponent(query)}`);
+    fetchPins(query, false);
+  };
+
   const handleShuffle = () => {
-    // Fetch fresh pins with same query but shuffled
     fetchPins(currentQuery, true);
   };
 
-  // Load initial pins on mount
+  // Load initial pins on mount and set initial history state
   useEffect(() => {
-    fetchPins('fashion');
+    console.log('🎨 Pinterest Clone loaded');
+    
+    // Set initial history state
+    window.history.replaceState({ query: currentQuery }, '', `/?q=${encodeURIComponent(currentQuery)}`);
+    
+    // Fetch initial pins
+    fetchPins(currentQuery, false);
   }, []);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.query) {
+        // Back button pressed - load from cache
+        fetchPins(event.state.query, false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Prefetch shop categories in background for instant navigation
+  useEffect(() => {
+    const prefetchShopCategories = async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const response = await fetch(`${backendUrl}/api/shop/categories/`);
+        const data = await response.json();
+        if (data.success) {
+          localStorage.setItem('shop_categories', JSON.stringify(data.categories));
+          console.log('🚀 Prefetched shop categories for instant navigation');
+        }
+      } catch (error) {
+        // Silent fail - not critical
+        console.log('Shop prefetch skipped');
+      }
+    };
+
+    // Prefetch after 2 seconds to not interfere with initial page load
+    const timeout = setTimeout(prefetchShopCategories, 2000);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  const handleImageSearch = async (file: File) => {
+    console.log(`📸 Uploading image: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+    
+    try {
+      // Upload to temp storage endpoint
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const uploadResponse = await fetch('/api/upload-temp', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload image');
+      }
+      
+      const uploadData = await uploadResponse.json();
+      const imageUrl = uploadData.imageUrl;
+      
+      console.log('✅ Image cached at:', imageUrl);
+      
+      // Store permanent URL in sessionStorage
+      sessionStorage.setItem('searchImageUrl', imageUrl);
+      
+      // Convert file to base64 for storage
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        sessionStorage.setItem('searchImageFile', reader.result as string);
+        // Redirect to search page
+        window.location.href = '/search';
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('❌ Failed to upload image:', error);
+      alert('Failed to upload image. Please try again.');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -88,13 +192,24 @@ export default function Home() {
                 Sh🍓ppin
               </h1>
               <nav className="hidden md:flex gap-6">
-                <button className="font-semibold hover:underline">Home</button>
-                <button className="font-semibold hover:underline">Explore</button>
+                <Link 
+                  href="/shop"
+                  className="font-semibold hover:underline flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                  </svg>
+                  Shop
+                </Link>
               </nav>
             </div>
           </div>
           
-          <SearchBar onSearch={(q) => fetchPins(q, false)} isLoading={loading} />
+          <SearchBar 
+            onSearch={(q) => fetchPins(q, false)} 
+            onImageSearch={handleImageSearch}
+            isLoading={loading} 
+          />
         </div>
       </header>
 
@@ -121,14 +236,29 @@ export default function Home() {
           </div>
         ) : pins.length > 0 ? (
           <>
-            <div className="mb-6 text-center">
-              <h2 className="text-2xl font-bold text-gray-800">
-                {currentQuery.charAt(0).toUpperCase() + currentQuery.slice(1)} Ideas
-              </h2>
-              <p className="text-gray-600 mt-2">
-                {pins.length} pins found
-              </p>
-            </div>
+          <div className="mb-6 text-center">
+            <h2 className="text-2xl font-bold text-gray-800">
+              {currentQuery.charAt(0).toUpperCase() + currentQuery.slice(1)} Ideas
+            </h2>
+            
+            {/* Show uploaded image reference if available */}
+            {currentQuery === 'Visual Search' && uploadedImage && (
+              <div className="mt-4 flex flex-col items-center">
+                <p className="text-sm text-gray-500 mb-2">Based on your upload:</p>
+                <div className="relative w-32 h-32 rounded-xl overflow-hidden shadow-md border-2 border-white">
+                  <img 
+                    src={uploadedImage} 
+                    alt="Uploaded reference" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <p className="text-gray-600 mt-2">
+              {pins.length} pins found
+            </p>
+          </div>
             
             <MasonryGallery 
               pins={pins} 

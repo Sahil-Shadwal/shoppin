@@ -49,24 +49,49 @@ class Command(BaseCommand):
             
             for row in tqdm(rows):
                 try:
-                    # Skip if already exists
-                    if Product.objects.filter(product_id=row['id']).exists():
-                        continue
-
                     # Map category
                     sub_cat = row.get('sub_category', '')
                     cat = row.get('category', '')
+                    title = row.get('title', '')
                     
                     mapped_category = category_map.get(sub_cat)
                     if not mapped_category:
-                        if cat == 'Accessories':
+                        # Try case-insensitive lookup
+                        for key, val in category_map.items():
+                            if key.lower() == sub_cat.lower():
+                                mapped_category = val
+                                break
+                    
+                    if not mapped_category:
+                        # Keyword based mapping (Title & Sub-cat)
+                        text_to_check = (sub_cat + ' ' + title).lower()
+                        
+                        if 'jeans' in text_to_check or 'pants' in text_to_check or 'trousers' in text_to_check or 'shorts' in text_to_check or 'skirt' in text_to_check or 'joggers' in text_to_check or 'sweatpants' in text_to_check:
+                            mapped_category = 'bottoms'
+                        elif 'hoodie' in text_to_check or 't-shirt' in text_to_check or 'sweater' in text_to_check or 'shirt' in text_to_check or 'top' in text_to_check or 'jacket' in text_to_check or 'coat' in text_to_check:
+                            mapped_category = 'tops' # Jacket/Coat could be outerwear, but tops is safer fallback than accessories
+                        elif 'shoe' in text_to_check or 'sneaker' in text_to_check or 'boot' in text_to_check or 'sandal' in text_to_check or 'slide' in text_to_check:
+                            mapped_category = 'footwear'
+                        elif 'bag' in text_to_check or 'tote' in text_to_check or 'purse' in text_to_check or 'wallet' in text_to_check:
+                            mapped_category = 'bags'
+                        elif cat == 'Accessories':
                             mapped_category = 'accessories'
-                        elif cat == 'Apparel':
-                            mapped_category = 'tops' # Default fallback
-                        elif cat == 'Shoes':
+                        elif cat == 'Apparel' or cat == 'streetwear':
+                            mapped_category = 'tops' # Default fallback for apparel/streetwear if no specific keywords found
+                        elif cat == 'Shoes' or cat == 'sneakers':
                             mapped_category = 'footwear'
                         else:
                             mapped_category = 'accessories' # Fallback
+
+                    # Check if already exists
+                    existing_product = Product.objects.filter(product_id=row['id']).first()
+                    if existing_product:
+                        # UPDATE category if it changed
+                        if existing_product.category != mapped_category:
+                            self.stdout.write(f"Updating category for {existing_product.title}: {existing_product.category} -> {mapped_category}")
+                            existing_product.category = mapped_category
+                            existing_product.save()
+                        continue
 
                     # Price handling
                     try:
