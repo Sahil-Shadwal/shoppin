@@ -85,11 +85,6 @@ Search for products using natural language, even with typos or slang.
 
 ---
 
-## 📸 Screen Performance 
-
-![Uploading Screenshot 2025-11-24 at 4.12.42 PM.png…]()
-
-
 ## 📝 License
 
 [MIT](LICENSE)
