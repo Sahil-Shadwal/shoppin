@@ -83,7 +83,16 @@ Search for products using natural language, even with typos or slang.
   - `all-MiniLM-L6-v2` (Text Embeddings)
 - **Infrastructure**: Docker, Docker Compose
 
----
+
+
+Shiping Live Demo:-
+
+
+
+https://github.com/user-attachments/assets/cc0a03b0-6c22-4062-9c1a-5316db8692ab
+
+
+
 
 ## 📝 License
 
