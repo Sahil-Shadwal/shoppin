@@ -83,6 +83,11 @@ Search for products using natural language, even with typos or slang.
   - `all-MiniLM-L6-v2` (Text Embeddings)
 - **Infrastructure**: Docker, Docker Compose
 
+Architecture 
+(Below is the asynchronous architecture design. The MVP implementation is synchronous, but the system is designed to scale using Celery workers, Redis queues, and asynchronous job processing.)
+
+<img width="1270" height="561" alt="Screenshot 2025-11-25 at 2 03 35 PM" src="https://github.com/user-attachments/assets/a2d4bbd7-bc90-49f4-8232-e67516e2e768" />
+
 
 
 Shiping Live Demo:-
