@@ -482,7 +482,28 @@ def shop_the_look(request):
             return Response({'error': 'Failed to generate embedding'}, status=status.HTTP_400_BAD_REQUEST)
         
         # 4️⃣ Search across all categories
-        if requested_category:
+        # Parse query for target categories if text is provided
+        target_categories = None
+        if query_text:
+            try:
+                from .gemini_utils import parse_search_query
+                parsed_data = parse_search_query(query_text)
+                if parsed_data.get('target_categories'):
+                    target_categories = parsed_data['target_categories']
+                    print(f"Gemini inferred target categories: {target_categories}")
+            except Exception as e:
+                print(f"Error parsing query for categories: {e}")
+
+        if target_categories:
+            # CRITICAL: If searching for multiple categories (e.g. "complete look"), 
+            # exclude the category of the uploaded item itself.
+            # User already has shoes, they don't want more shoes in the "complete look".
+            if requested_category and requested_category in target_categories and len(target_categories) > 1:
+                print(f"Excluding source category '{requested_category}' from target categories.")
+                target_categories.remove(requested_category)
+                
+            categories = target_categories
+        elif requested_category:
             categories = [requested_category]
         else:
             categories = ['tops', 'bottoms', 'footwear', 'outerwear', 'accessories']
@@ -520,7 +541,7 @@ def shop_the_look(request):
                     visual_dist=CosineDistance('visual_embedding', query_embedding),
                     text_dist=CosineDistance('text_embedding', text_embedding)
                 ).annotate(
-                    combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4)
+                    combined_dist=(F('visual_dist') * 0.3) + (F('text_dist') * 0.7)
                 ).order_by('combined_dist')[:4]
             else:
                 # Visual Only
@@ -618,9 +639,12 @@ def search_by_image(request):
             parsed_data = parse_search_query(query_text)
             
             # Update query_text with refined version
-            if parsed_data.get('refined_query'):
-                query_text = parsed_data['refined_query']
-                print(f"Refined Query: {query_text}")
+            # CRITICAL: If refined_query is explicitly empty string "", it means we should clear the query_text
+            # and rely on visual search only (plus category filters).
+            refined = parsed_data.get('refined_query')
+            if refined is not None:
+                query_text = refined
+                print(f"Refined Query: '{query_text}'")
                 
             # Update negative query
             if parsed_data.get('negative_query'):
@@ -698,11 +722,11 @@ def search_by_image(request):
                 # We want to maximize: Sim(Query) - Sim(Negative)
                 # => Minimize: (1 - Sim(Query)) + Sim(Negative)
                 # => Minimize: Dist(Query) + (1 - Dist(Negative))
-                combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4) + (1.0 - F('neg_dist')) * 0.5
+                combined_dist=(F('visual_dist') * 0.3) + (F('text_dist') * 0.7) + (1.0 - F('neg_dist')) * 0.5
             )
         else:
             matches = matches.annotate(
-                combined_dist=(F('visual_dist') * 0.6) + (F('text_dist') * 0.4)
+                combined_dist=(F('visual_dist') * 0.3) + (F('text_dist') * 0.7)
             )
             
         matches = matches.order_by('combined_dist')[:top_k]
