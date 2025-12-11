@@ -43,13 +43,20 @@ class ApiService {
     }
   }
 
-  Future<List<Product>> searchByImage(XFile imageFile, {int topK = 20}) async {
+  Future<List<Product>> searchByImage(XFile imageFile, {int topK = 20, String? queryText}) async {
     try {
       String fileName = imageFile.path.split('/').last;
-      FormData formData = FormData.fromMap({
+      
+      final Map<String, dynamic> map = {
         'image': await MultipartFile.fromFile(imageFile.path, filename: fileName),
         'top_k': topK,
-      });
+      };
+
+      if (queryText != null && queryText.isNotEmpty) {
+        map['query_text'] = queryText;
+      }
+
+      FormData formData = FormData.fromMap(map);
 
       final response = await _dio.post(
         '/api/search/image/',

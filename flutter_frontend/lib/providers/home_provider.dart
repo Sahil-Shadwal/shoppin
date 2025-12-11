@@ -24,11 +24,15 @@ class HomeProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   HomeState get currentState => _currentState;
   String get currentQuery => _currentQuery;
+  XFile? get uploadedImage => _uploadedImage;
+
+  XFile? _uploadedImage;
 
   Future<void> fetchGallery({String query = ''}) async {
     _isLoading = true;
     _currentQuery = query;
     _currentState = HomeState.gallery;
+    _uploadedImage = null;
     notifyListeners();
 
     try {
@@ -43,16 +47,23 @@ class HomeProvider with ChangeNotifier {
   }
 
   Future<void> searchByText(String query) async {
-    fetchGallery(query: query);
+    // If we have an uploaded image, this should refine the visual search
+    if (_currentState == HomeState.visualSearch && _uploadedImage != null) {
+        await searchByImage(_uploadedImage!, queryText: query);
+    } else {
+        await fetchGallery(query: query);
+    }
   }
 
-  Future<void> searchByImage(XFile imageFile) async {
+  Future<void> searchByImage(XFile imageFile, {String? queryText}) async {
     _isLoading = true;
     _currentState = HomeState.visualSearch;
+    _uploadedImage = imageFile;
+    if (queryText != null) _currentQuery = queryText;
     notifyListeners();
 
     try {
-      _visualResults = await _apiService.searchByImage(imageFile);
+      _visualResults = await _apiService.searchByImage(imageFile, queryText: queryText);
     } catch (e) {
       debugPrint('Error parsing visual search: $e');
       _visualResults = [];
@@ -65,7 +76,7 @@ class HomeProvider with ChangeNotifier {
   void resetToGallery() {
     _currentState = HomeState.gallery;
     _visualResults = [];
-    // Optionally reload gallery or keep existing
+    _uploadedImage = null;
     notifyListeners();
   }
 }

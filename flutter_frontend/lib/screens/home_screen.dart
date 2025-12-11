@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -13,14 +14,24 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _SearchBar(),
-        actions: [
+    return Consumer<HomeProvider>(
+      builder: (context, provider, child) {
+        return Scaffold(
+          appBar: AppBar(
+            leading: provider.currentState == HomeState.visualSearch
+                ? IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => provider.resetToGallery(),
+                  )
+                : null,
+            title: _SearchBar(),
+            actions: [
           IconButton(
             icon: const Icon(Icons.camera_alt),
+            tooltip: 'Upload Image',
             onPressed: () async {
               final ImagePicker picker = ImagePicker();
+              // On macOS, this opens Finder. On iOS, this opens Photo Library.
               final XFile? image = await picker.pickImage(source: ImageSource.gallery);
               if (image != null && context.mounted) {
                 Provider.of<HomeProvider>(context, listen: false).searchByImage(image);
@@ -29,8 +40,16 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Consumer<HomeProvider>(
-        builder: (context, provider, child) {
+      body: provider.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _buildBody(context, provider),
+        );
+      },
+    );
+  }
+}
+
+  Widget _buildBody(BuildContext context, HomeProvider provider) {
           if (provider.isLoading) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -47,34 +66,75 @@ class HomeScreen extends StatelessWidget {
               ? provider.pins.length
               : provider.visualResults.length;
 
-          return MasonryGridView.count(
-            padding: const EdgeInsets.all(8.0),
-            crossAxisCount: 2,
-            mainAxisSpacing: 8.0,
-            crossAxisSpacing: 8.0,
-            itemCount: itemCount,
-            itemBuilder: (context, index) {
-              if (provider.currentState == HomeState.gallery) {
-                final pin = provider.pins[index];
-                return _PinCard(pin: pin);
-              } else {
-                final product = provider.visualResults[index];
-                // Convert Product to Pin for detail view
-                final pin = Pin(
-                  id: product.productId,
-                  imageUrl: product.imageUrl,
-                  caption: product.title,
-                  source: product.price != null ? '\$${product.price}' : 'Unknown',
-                );
-                return _PinCard(pin: pin);
-              }
-            },
+          return CustomScrollView(
+            slivers: [
+              if (provider.currentState == HomeState.visualSearch && provider.uploadedImage != null)
+                 SliverToBoxAdapter(
+                  child: Container(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Based on your upload:',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Stack(
+                          alignment: Alignment.topRight,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.file(
+                                File(provider.uploadedImage!.path),
+                                height: 200,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.white, shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
+                              onPressed: () {
+                                provider.fetchGallery(query: 'zara');
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Found ${provider.visualResults.length} matches',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                 ),
+
+              SliverPadding(
+                padding: const EdgeInsets.all(8.0),
+                sliver: SliverMasonryGrid.count(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 8.0,
+                  crossAxisSpacing: 8.0,
+                  childCount: itemCount,
+                  itemBuilder: (context, index) {
+                    if (provider.currentState == HomeState.gallery) {
+                      final pin = provider.pins[index];
+                      return _PinCard(pin: pin);
+                    } else {
+                      final product = provider.visualResults[index];
+                      final pin = Pin(
+                        id: product.productId,
+                        imageUrl: product.imageUrl,
+                        caption: product.title,
+                        source: product.price != null ? '\$${product.price}' : 'Unknown',
+                      );
+                      return _PinCard(pin: pin);
+                    }
+                  },
+                ),
+              ),
+            ],
           );
-        },
-      ),
-    );
   }
-}
 
 class _SearchBar extends StatefulWidget {
   @override
